@@ -11,14 +11,15 @@ from amy.web_search import SearchResult
 
 
 class FakeResponder:
-    def __init__(self) -> None:
+    def __init__(self, response: str = "reply") -> None:
         self.calls: list[list[Message]] = []
+        self.response = response
 
     def generate_reply(self, messages: list[Message], cancel_event: threading.Event) -> str:
         self.calls.append(messages)
         if cancel_event.is_set():
             return ""
-        return "reply"
+        return self.response
 
 
 class FakeSpeaker:
@@ -160,6 +161,28 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertEqual(responder.calls, [])
         self.assertEqual(speaker.spoken, [])
+
+    def test_short_assistant_echo_is_ignored(self) -> None:
+        responder = FakeResponder(response="Yes.")
+        speaker = FakeSpeaker()
+        controller = AssistantController(
+            prompt_builder=PromptBuilder(
+                assistant_name="Amy",
+                project_context="",
+                wake_word="amy",
+            ),
+            responder=responder,
+            speaker=speaker,
+            wake_word="amy",
+        )
+
+        first_result = controller.process_transcript("amy are you still there")
+        second_result = controller.process_transcript("Yes!")
+
+        self.assertEqual(first_result, "Yes.")
+        self.assertIsNone(second_result)
+        self.assertEqual(len(responder.calls), 1)
+        self.assertEqual(speaker.spoken, ["Yes."])
 
     def test_acknowledgement_prefix_is_not_ignored(self) -> None:
         controller, responder, speaker, _ = build_controller()

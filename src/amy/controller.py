@@ -39,6 +39,11 @@ class AssistantController:
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False)
     _idle_timer: threading.Timer | None = field(default=None, init=False)
     _logger: logging.Logger = field(default_factory=lambda: logging.getLogger(__name__), init=False, repr=False)
+    _acknowledgement_echoes: frozenset[str] = field(
+        default_factory=lambda: frozenset({"yes", "yeah", "yep", "no", "ok", "okay", "sure", "right"}),
+        init=False,
+        repr=False,
+    )
 
     def pause(self) -> None:
         with self._lock:
@@ -230,7 +235,24 @@ class AssistantController:
         return any(re.search(rf"\b{word}\b", normalized) for word in interrupt_words)
 
     def _is_acknowledgement_echo(self, normalized: str) -> bool:
-        return normalized == "amy here"
+        if normalized == "amy here":
+            return True
+        if not self.status.active_conversation:
+            return False
+
+        normalized_echo = self._normalize_echo_text(normalized)
+        last_assistant_text = self.status.last_assistant_text
+        if not last_assistant_text:
+            return False
+
+        normalized_assistant = self._normalize_echo_text(last_assistant_text)
+        return (
+            normalized_echo in self._acknowledgement_echoes
+            and normalized_echo == normalized_assistant
+        )
+
+    def _normalize_echo_text(self, text: str) -> str:
+        return re.sub(r"[^a-z0-9\s]", "", text.lower()).strip()
 
     def _strip_acknowledgement_prefix(self, text: str) -> str:
         pattern = re.compile(r"^\s*(?:amy\s+)?here[\s,.:;-]*", re.IGNORECASE)
