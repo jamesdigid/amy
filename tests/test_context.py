@@ -42,3 +42,4 @@ class PromptBuilderTests(unittest.TestCase):
         self.assertIn("Current web context", messages[0].content)
         self.assertIn("Search query: x", messages[0].content)
         self.assertIn("Never read raw URL links aloud", messages[0].content)
+        self.assertIn("Treat every interaction as live voice conversation", messages[0].content)

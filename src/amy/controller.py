@@ -38,24 +38,24 @@ class AssistantController:
     _cancel_event: threading.Event = field(default_factory=threading.Event, init=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False)
     _idle_timer: threading.Timer | None = field(default=None, init=False)
+    _speech_cooldown_timer: threading.Timer | None = field(default=None, init=False)
     _logger: logging.Logger = field(default_factory=lambda: logging.getLogger(__name__), init=False, repr=False)
     _acknowledgement_echoes: frozenset[str] = field(
         default_factory=lambda: frozenset({"yes", "yeah", "yep", "no", "ok", "okay", "sure", "right"}),
         init=False,
         repr=False,
     )
+    speech_cooldown_seconds: float = 0.6
 
     def pause(self) -> None:
         with self._lock:
             self._logger.debug("pause requested")
             self._cancel_idle_timer_locked()
+            self._cancel_speech_cooldown_locked()
             self._cancel_event.set()
             self.speaker.stop()
             self.status.active_conversation = False
-            if self.status.active_conversation:
-                self.status.phase = AssistantPhase.LISTENING
-            else:
-                self.status.phase = AssistantPhase.IDLE
+            self.status.phase = AssistantPhase.IDLE
             self.status.paused = False
 
     def resume(self) -> None:
@@ -68,6 +68,7 @@ class AssistantController:
         with self._lock:
             self._logger.debug("cut requested")
             self._cancel_idle_timer_locked()
+            self._cancel_speech_cooldown_locked()
             self._cancel_event.set()
             self.speaker.stop()
             self.status.active_conversation = False
@@ -77,6 +78,7 @@ class AssistantController:
     def stop(self) -> None:
         with self._lock:
             self._cancel_idle_timer_locked()
+            self._cancel_speech_cooldown_locked()
             self._cancel_event.set()
             self.speaker.stop()
             self.status.active_conversation = False
@@ -112,8 +114,13 @@ class AssistantController:
                 self._logger.debug("dropping transcript because assistant is paused")
                 return None
 
+            if self.status.phase in {AssistantPhase.SPEAKING, AssistantPhase.COOLDOWN}:
+                self._logger.debug("dropping transcript because assistant is in speech cooldown")
+                return None
+
             if self.status.active_conversation:
                 self._cancel_idle_timer_locked()
+            self._cancel_speech_cooldown_locked()
 
             prompt = transcript.strip()
             prompt = self._strip_acknowledgement_prefix(prompt)
@@ -126,10 +133,10 @@ class AssistantController:
                 if not prompt:
                     self._logger.debug("wake word alone; acknowledging only")
                     self.status.active_conversation = True
-                    self.status.phase = AssistantPhase.LISTENING
+                    self.status.phase = AssistantPhase.COOLDOWN
                     self._stop_acknowledgement_loop()
                     self.speaker.speak("Amy here")
-                    self._schedule_idle_timeout_locked()
+                    self._schedule_post_speech_transition_locked(expects_follow_up=False)
                     return None
                 self.status.active_conversation = True
                 self.status.phase = AssistantPhase.RECORDING
@@ -159,6 +166,7 @@ class AssistantController:
             self._logger.debug("reply cancelled before speech")
             return None
 
+        reply = self._limit_follow_up_questions(reply)
         with self._lock:
             self.status.phase = AssistantPhase.SPEAKING
             self.status.last_assistant_text = reply
@@ -172,8 +180,9 @@ class AssistantController:
             if not self._cancel_event.is_set():
                 self._logger.debug("reply complete; waiting for follow-up")
                 self.status.active_conversation = True
-                self.status.phase = AssistantPhase.LISTENING
-                self._schedule_idle_timeout_locked()
+                self._schedule_post_speech_transition_locked(
+                    expects_follow_up=self._reply_expects_follow_up(reply)
+                )
         return reply
 
     def get_status(self) -> AssistantStatus:
@@ -201,6 +210,13 @@ class AssistantController:
     def is_interrupt_command(self, transcript: str) -> bool:
         normalized = self._normalize_text(transcript)
         return self._looks_like_short_interrupt(normalized)
+
+    def should_drop_main_transcript(self) -> bool:
+        with self._lock:
+            return self.status.paused or self.status.phase in {
+                AssistantPhase.SPEAKING,
+                AssistantPhase.COOLDOWN,
+            }
 
     def _estimate_tokens(self, messages: list[Message]) -> int:
         return sum(max(1, len(message.content.split())) for message in messages)
@@ -231,8 +247,42 @@ class AssistantController:
         words = normalized.split()
         if not words or len(words) > 4:
             return False
-        interrupt_words = ("pause", "resume", "cut")
+        interrupt_words = ("pause", "resume", "cut", "stop")
         return any(re.search(rf"\b{word}\b", normalized) for word in interrupt_words)
+
+    def _reply_expects_follow_up(self, reply: str) -> bool:
+        normalized = self._normalize_echo_text(reply)
+        if "?" in reply:
+            return True
+
+        follow_up_signals = (
+            "can you",
+            "could you",
+            "would you",
+            "do you",
+            "did you",
+            "should you",
+            "shall we",
+            "what would you",
+            "what do you",
+            "what can you",
+            "would you like",
+            "do you want",
+            "let me know",
+            "tell me",
+            "want me to",
+        )
+        return any(signal in normalized for signal in follow_up_signals)
+
+    def _limit_follow_up_questions(self, reply: str) -> str:
+        first_question_mark = reply.find("?")
+        if first_question_mark < 0:
+            return reply.strip()
+
+        if reply.count("?") <= 1:
+            return reply.strip()
+
+        return reply[: first_question_mark + 1].strip()
 
     def _is_acknowledgement_echo(self, normalized: str) -> bool:
         if normalized == "amy here":
@@ -318,10 +368,45 @@ class AssistantController:
         self._idle_timer = timer
         timer.start()
 
+    def _schedule_post_speech_transition_locked(self, expects_follow_up: bool) -> None:
+        self._cancel_speech_cooldown_locked()
+        self.status.phase = AssistantPhase.COOLDOWN
+        if self.speech_cooldown_seconds <= 0:
+            self._speech_cooldown_timer = None
+            self.status.phase = (
+                AssistantPhase.AWAITING_USER_RESPONSE if expects_follow_up else AssistantPhase.LISTENING
+            )
+            self._schedule_idle_timeout_locked()
+            return
+
+        timer = threading.Timer(
+            self.speech_cooldown_seconds,
+            self._finish_post_speech_transition,
+            args=(expects_follow_up,),
+        )
+        timer.daemon = True
+        self._speech_cooldown_timer = timer
+        timer.start()
+
     def _cancel_idle_timer_locked(self) -> None:
         if self._idle_timer is not None:
             self._idle_timer.cancel()
             self._idle_timer = None
+
+    def _cancel_speech_cooldown_locked(self) -> None:
+        if self._speech_cooldown_timer is not None:
+            self._speech_cooldown_timer.cancel()
+            self._speech_cooldown_timer = None
+
+    def _finish_post_speech_transition(self, expects_follow_up: bool) -> None:
+        with self._lock:
+            if self.status.paused or self.status.phase != AssistantPhase.COOLDOWN:
+                return
+            self._speech_cooldown_timer = None
+            self.status.phase = (
+                AssistantPhase.AWAITING_USER_RESPONSE if expects_follow_up else AssistantPhase.LISTENING
+            )
+            self._schedule_idle_timeout_locked()
 
     def _set_idle(self) -> None:
         with self._lock:

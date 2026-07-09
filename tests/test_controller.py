@@ -77,6 +77,7 @@ class FakeWebSearch:
 def build_controller(
     web_search: FakeWebSearch | None = None,
     idle_timeout_seconds: float = 0.1,
+    speech_cooldown_seconds: float = 0.05,
 ) -> tuple[AssistantController, FakeResponder, FakeSpeaker, FakeWebSearch | None]:
     responder = FakeResponder()
     speaker = FakeSpeaker()
@@ -92,6 +93,7 @@ def build_controller(
         idle_timeout_seconds=idle_timeout_seconds,
         web_search=web_search,
     )
+    controller.speech_cooldown_seconds = speech_cooldown_seconds
     return controller, responder, speaker, web_search
 
 
@@ -114,6 +116,10 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertEqual(responder.calls[0][-1].content, "summarize this")
         self.assertEqual(speaker.spoken, ["reply"])
         self.assertTrue(controller.get_status().active_conversation)
+        self.assertEqual(controller.get_status().phase.value, "cooldown")
+
+        time.sleep(0.08)
+
         self.assertEqual(controller.get_status().phase.value, "listening")
 
         time.sleep(0.2)
@@ -130,6 +136,10 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertEqual(responder.calls, [])
         self.assertEqual(speaker.spoken, ["Amy here"])
         self.assertTrue(controller.get_status().active_conversation)
+        self.assertEqual(controller.get_status().phase.value, "cooldown")
+
+        time.sleep(0.08)
+
         self.assertEqual(controller.get_status().phase.value, "listening")
 
         time.sleep(0.2)
@@ -146,6 +156,10 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertEqual(responder.calls[0][-1].content, "can you tell me the news in West Palm today")
         self.assertEqual(speaker.spoken, ["reply"])
         self.assertTrue(controller.get_status().active_conversation)
+        self.assertEqual(controller.get_status().phase.value, "cooldown")
+
+        time.sleep(0.08)
+
         self.assertEqual(controller.get_status().phase.value, "listening")
 
         time.sleep(0.2)
@@ -193,6 +207,58 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertEqual(responder.calls[0][-1].content, "tell me a story")
         self.assertEqual(speaker.spoken, ["reply"])
 
+    def test_multiple_follow_up_questions_are_trimmed_to_one(self) -> None:
+        controller, responder, speaker, _ = build_controller()
+        responder.response = "Please share the purpose of the email? What tone should it have? Who is the recipient?"
+
+        result = controller.process_transcript("amy draft an email")
+
+        self.assertEqual(result, "Please share the purpose of the email?")
+        self.assertEqual(speaker.spoken, ["Please share the purpose of the email?"])
+        self.assertEqual(responder.calls[0][-1].content, "draft an email")
+        self.assertEqual(controller.get_status().phase.value, "cooldown")
+
+    def test_open_ended_question_expires_after_grace_period(self) -> None:
+        responder = FakeResponder(response="What would you like me to do next?")
+        speaker = FakeSpeaker()
+        controller = AssistantController(
+            prompt_builder=PromptBuilder(
+                assistant_name="Amy",
+                project_context="",
+                wake_word="amy",
+            ),
+            responder=responder,
+            speaker=speaker,
+            wake_word="amy",
+            idle_timeout_seconds=0.05,
+        )
+        controller.speech_cooldown_seconds = 0.05
+
+        result = controller.process_transcript("amy summarize this")
+
+        self.assertEqual(result, "What would you like me to do next?")
+        self.assertEqual(controller.get_status().phase.value, "cooldown")
+
+        time.sleep(0.08)
+
+        self.assertEqual(controller.get_status().phase.value, "awaiting_user_response")
+
+        follow_up = controller.process_transcript("tell me more")
+
+        self.assertEqual(follow_up, "What would you like me to do next?")
+        self.assertEqual(len(responder.calls), 2)
+        self.assertEqual(responder.calls[-1][-1].content, "tell me more")
+        self.assertEqual(controller.get_status().phase.value, "cooldown")
+
+        time.sleep(0.08)
+
+        self.assertEqual(controller.get_status().phase.value, "awaiting_user_response")
+
+        time.sleep(0.1)
+
+        self.assertFalse(controller.get_status().active_conversation)
+        self.assertEqual(controller.get_status().phase.value, "idle")
+
     def test_pause_and_cut_commands_change_state(self) -> None:
         controller, _responder, speaker, _ = build_controller()
 
@@ -238,6 +304,7 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertTrue(controller.is_interrupt_command("Amy pause"))
         self.assertTrue(controller.is_interrupt_command("resume"))
         self.assertTrue(controller.is_interrupt_command("cut channel"))
+        self.assertTrue(controller.is_interrupt_command("stop"))
         self.assertFalse(controller.is_interrupt_command("would you like recent headlines, whether alerts or event pause"))
         self.assertFalse(controller.is_interrupt_command("hello there"))
 

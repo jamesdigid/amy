@@ -13,6 +13,7 @@ from typing import Callable
 
 from .audio import AudioConfig, MicrophoneSource, SpeechSegmenter
 from .controller import AssistantController
+from .models import AssistantPhase
 from .transcription import Transcriber
 
 
@@ -124,14 +125,16 @@ class AssistantRuntime:
                         if self.controller.is_interrupt_command(command_text):
                             self._command_queue.put(command_text)
 
+                    if self.controller.should_drop_main_transcript():
+                        speech_segmenter.reset()
+                        continue
+
                     segment = speech_segmenter.feed(frame)
                     if segment is None:
                         continue
                     text = self.transcriber.transcribe(segment.path)
                     logger.debug("transcribed main segment: %r", text)
-                    speaker_state = getattr(self.controller.speaker, "is_speaking", None)
-                    is_speaking = bool(speaker_state.is_set()) if speaker_state is not None else False
-                    if is_speaking:
+                    if not self._should_queue_main_transcript():
                         continue
                     self._transcript_queue.put(text)
         except Exception as exc:  # pragma: no cover - runtime path
@@ -173,6 +176,18 @@ class AssistantRuntime:
                 self.on_status(f"command worker error: {exc}")
             finally:
                 continue
+
+    def _should_queue_main_transcript(self) -> bool:
+        speaker_state = getattr(self.controller.speaker, "is_speaking", None)
+        is_speaking = bool(speaker_state.is_set()) if speaker_state is not None else False
+        if is_speaking:
+            return False
+
+        if self.controller.should_drop_main_transcript():
+            return False
+
+        status = self.controller.get_status()
+        return status.phase not in {AssistantPhase.PAUSED}
 
     def handle_command_transcript(self, transcript: str) -> None:
         if self.controller.is_interrupt_command(transcript):

@@ -14,6 +14,8 @@ class AssistantPhase(str, Enum):
     RECORDING = "recording"
     THINKING = "thinking"
     SPEAKING = "speaking"
+    COOLDOWN = "cooldown"
+    AWAITING_USER_RESPONSE = "awaiting_user_response"
     PAUSED = "paused"
     ERROR = "error"
 
