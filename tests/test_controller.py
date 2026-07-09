@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 import unittest
 
 from amy.context import PromptBuilder
@@ -74,6 +75,7 @@ class FakeWebSearch:
 
 def build_controller(
     web_search: FakeWebSearch | None = None,
+    idle_timeout_seconds: float = 0.1,
 ) -> tuple[AssistantController, FakeResponder, FakeSpeaker, FakeWebSearch | None]:
     responder = FakeResponder()
     speaker = FakeSpeaker()
@@ -85,8 +87,8 @@ def build_controller(
         ),
         responder=responder,
         speaker=speaker,
-            wake_word="amy",
-            idle_timeout_seconds=0.05,
+        wake_word="amy",
+        idle_timeout_seconds=idle_timeout_seconds,
         web_search=web_search,
     )
     return controller, responder, speaker, web_search
@@ -110,6 +112,11 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertEqual(result, "reply")
         self.assertEqual(responder.calls[0][-1].content, "summarize this")
         self.assertEqual(speaker.spoken, ["reply"])
+        self.assertTrue(controller.get_status().active_conversation)
+        self.assertEqual(controller.get_status().phase.value, "listening")
+
+        time.sleep(0.2)
+
         self.assertFalse(controller.get_status().active_conversation)
         self.assertEqual(controller.get_status().phase.value, "idle")
 
@@ -121,6 +128,11 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertEqual(responder.calls, [])
         self.assertEqual(speaker.spoken, ["Amy here"])
+        self.assertTrue(controller.get_status().active_conversation)
+        self.assertEqual(controller.get_status().phase.value, "listening")
+
+        time.sleep(0.2)
+
         self.assertFalse(controller.get_status().active_conversation)
         self.assertEqual(controller.get_status().phase.value, "idle")
 
@@ -132,6 +144,11 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(responder.calls[0][-1].content, "can you tell me the news in West Palm today")
         self.assertEqual(speaker.spoken, ["reply"])
+        self.assertTrue(controller.get_status().active_conversation)
+        self.assertEqual(controller.get_status().phase.value, "listening")
+
+        time.sleep(0.2)
+
         self.assertFalse(controller.get_status().active_conversation)
         self.assertEqual(controller.get_status().phase.value, "idle")
 
@@ -143,6 +160,15 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertEqual(responder.calls, [])
         self.assertEqual(speaker.spoken, [])
+
+    def test_acknowledgement_prefix_is_not_ignored(self) -> None:
+        controller, responder, speaker, _ = build_controller()
+
+        result = controller.process_transcript("Amy here tell me a story")
+
+        self.assertEqual(result, "reply")
+        self.assertEqual(responder.calls[0][-1].content, "tell me a story")
+        self.assertEqual(speaker.spoken, ["reply"])
 
     def test_pause_and_cut_commands_change_state(self) -> None:
         controller, _responder, speaker, _ = build_controller()
@@ -175,8 +201,12 @@ class AssistantControllerTests(unittest.TestCase):
         controller.process_transcript("amy redirect to web search")
 
         self.assertGreaterEqual(speaker.stopped, 1)
-        self.assertFalse(controller.get_status().active_conversation)
+        self.assertTrue(controller.get_status().active_conversation)
         self.assertEqual(responder.calls[-1][-1].content, "redirect to web search")
+
+        time.sleep(0.2)
+
+        self.assertFalse(controller.get_status().active_conversation)
 
     def test_interrupt_commands_are_detectable_during_speech(self) -> None:
         controller, _responder, _speaker, _ = build_controller()

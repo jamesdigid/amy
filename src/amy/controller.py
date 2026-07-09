@@ -29,7 +29,7 @@ class AssistantController:
     wake_word: str
     web_search: WebSearcher | None = None
     web_search_limit: int = 4
-    idle_timeout_seconds: float = 15.0
+    idle_timeout_seconds: float = 10.0
     usage_logger: Callable[[int, float], None] | None = None
     acknowledgment_callback: Callable[[], None] | None = None
     acknowledgment_stop_callback: Callable[[], None] | None = None
@@ -46,6 +46,7 @@ class AssistantController:
             self._cancel_idle_timer_locked()
             self._cancel_event.set()
             self.speaker.stop()
+            self.status.active_conversation = False
             if self.status.active_conversation:
                 self.status.phase = AssistantPhase.LISTENING
             else:
@@ -64,6 +65,7 @@ class AssistantController:
             self._cancel_idle_timer_locked()
             self._cancel_event.set()
             self.speaker.stop()
+            self.status.active_conversation = False
             self.status.paused = True
             self.status.phase = AssistantPhase.PAUSED
 
@@ -105,16 +107,24 @@ class AssistantController:
                 self._logger.debug("dropping transcript because assistant is paused")
                 return None
 
+            if self.status.active_conversation:
+                self._cancel_idle_timer_locked()
+
             prompt = transcript.strip()
+            prompt = self._strip_acknowledgement_prefix(prompt)
             if not self.status.active_conversation:
                 if not self._starts_with_wake_word(normalized):
                     self._logger.debug("dropping transcript because wake word did not match")
                     return None
-                self._cancel_idle_timer_locked()
                 prompt = self._strip_wake_word(prompt)
+                prompt = self._strip_acknowledgement_prefix(prompt)
                 if not prompt:
                     self._logger.debug("wake word alone; acknowledging only")
-                    self._speak_acknowledgement()
+                    self.status.active_conversation = True
+                    self.status.phase = AssistantPhase.LISTENING
+                    self._stop_acknowledgement_loop()
+                    self.speaker.speak("Amy here")
+                    self._schedule_idle_timeout_locked()
                     return None
                 self.status.active_conversation = True
                 self.status.phase = AssistantPhase.RECORDING
@@ -154,11 +164,11 @@ class AssistantController:
         self.speaker.speak(reply)
 
         with self._lock:
-            self._cancel_idle_timer_locked()
-            self.status.active_conversation = False
             if not self._cancel_event.is_set():
-                self._logger.debug("reply complete; returning to idle")
-                self.status.phase = AssistantPhase.IDLE
+                self._logger.debug("reply complete; waiting for follow-up")
+                self.status.active_conversation = True
+                self.status.phase = AssistantPhase.LISTENING
+                self._schedule_idle_timeout_locked()
         return reply
 
     def get_status(self) -> AssistantStatus:
@@ -220,7 +230,11 @@ class AssistantController:
         return any(re.search(rf"\b{word}\b", normalized) for word in interrupt_words)
 
     def _is_acknowledgement_echo(self, normalized: str) -> bool:
-        return re.match(r"^amy here\b", normalized) is not None
+        return normalized == "amy here"
+
+    def _strip_acknowledgement_prefix(self, text: str) -> str:
+        pattern = re.compile(r"^\s*(?:amy\s+)?here[\s,.:;-]*", re.IGNORECASE)
+        return pattern.sub("", text).strip()
 
     def _speak_acknowledgement(self) -> None:
         if self.acknowledgment_callback is not None:

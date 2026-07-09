@@ -31,6 +31,7 @@ Local Python voice assistant that wakes on `amy`, transcribes speech locally, ca
 ## What To Expect
 - The system runs as a terminal-controlled local assistant, not a background service.
 - Say `amy` to begin a voice interaction.
+- After Amy responds, she stays in listening mode for about 10 seconds so you can follow up without repeating the wake word.
 - Use the terminal commands `pause`, `resume`, `status`, and `quit` to control the channel.
 - Ask current or lookup-style questions and Amy will add basic web search context automatically.
 - Local speech-to-text and local text-to-speech keep OpenAI usage text-only and cost-effective.
