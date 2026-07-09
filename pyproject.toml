@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "amy-research-assistant"
+version = "0.1.0"
+description = "Local voice assistant that wakes on amy, transcribes locally, and talks to OpenAI with project context."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "openai>=1.40.0",
+]
+
+[project.optional-dependencies]
+audio = [
+  "numpy>=1.26.0",
+  "sounddevice>=0.5.0",
+  "faster-whisper>=1.0.0",
+]
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.6.0",
+  "pyright>=1.1.377",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+amy = ["assets/*.aiff"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pyright]
+include = ["src", "tests"]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.10"
+typeCheckingMode = "strict"
+# sounddevice and faster-whisper ship no type stubs; boundaries are typed via local Protocols.
+reportMissingTypeStubs = false
