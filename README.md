@@ -1,4 +1,4 @@
-# Amy Research Assistant
+# Amy AI Voice Assistant
 
 Local Python voice assistant that wakes on `amy`, transcribes speech locally, can pull in lightweight web search for current topics, sends text plus project context to OpenAI, and speaks responses back locally.
 
