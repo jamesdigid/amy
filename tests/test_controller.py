@@ -6,17 +6,17 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from amy.context import PromptBuilder
-from amy.controller import AssistantController
-from amy.models import Message
-from amy.memory import (
+from agents.amy.core.controller import AssistantController
+from agents.amy.core.models import Message
+from agents.amy.core.prompts import PromptBuilder
+from agents.amy.memory import (
     MemoryClassifierProtocol,
     MemoryDecision,
     MemoryDraft,
     MemoryStore,
     MemoryStoreProtocol,
 )
-from amy.web_search import SearchResult
+from agents.amy.skills.browser import SearchResult
 
 
 class FakeResponder:

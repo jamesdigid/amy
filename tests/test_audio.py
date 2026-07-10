@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from amy.audio import AudioConfig, SpeechSegmenter
+from agents.amy.modalities.audio import AudioConfig, SpeechSegmenter
 
 
 def _silent_frame(samples: int) -> bytes:

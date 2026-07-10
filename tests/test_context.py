@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from amy.context import PromptBuilder
-from amy.models import ConversationTurn
+from agents.amy.core.models import ConversationTurn
+from agents.amy.core.prompts import PromptBuilder
 
 
 class PromptBuilderTests(unittest.TestCase):

@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from amy.config import load_config
+from agents.amy.config import load_config
 
 
 class ConfigTests(unittest.TestCase):

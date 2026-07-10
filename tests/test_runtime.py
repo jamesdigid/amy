@@ -4,10 +4,9 @@ import threading
 import unittest
 from pathlib import Path
 
-from amy.audio import AudioConfig
-from amy.models import AssistantPhase
-from amy.runtime import AssistantRuntime
-from amy.transcription import StubTranscriber
+from agents.amy.core.models import AssistantPhase
+from agents.amy.modalities.audio import AudioConfig, StubTranscriber
+from agents.amy.runtime import AssistantRuntime
 
 
 class DummySpeaker:

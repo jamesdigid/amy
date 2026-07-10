@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from amy.memory import MemoryStore
+from agents.amy.memory import MemoryStore
 
 
 class MemoryStoreTests(unittest.TestCase):
