@@ -11,7 +11,9 @@ from .core.controller import AssistantController
 from .core.prompts import PromptBuilder
 from .memory import MemoryStore, OpenAIMemoryClassifier
 from .modalities.audio import AudioConfig, FasterWhisperTranscriber, LocalSpeaker
-from .runtime import AssistantRuntime
+from .runtime.assistant import AssistantRuntime
+from .runtime.status import AmyStatusReporter
+from .skills.registry import AmySkillRegistry
 from .skills.browser import DuckDuckGoWebSearch
 
 
@@ -35,6 +37,17 @@ class AmyAgent:
         memory_classifier = OpenAIMemoryClassifier(api_key=config.api_key, model=config.model)
         responder = OpenAIResponder(api_key=config.api_key, model=config.model)
         speaker = LocalSpeaker()
+        skill_registry = AmySkillRegistry(
+            project_root=workspace or Path.cwd(),
+            memory_store=memory_store,
+            web_search=DuckDuckGoWebSearch(),
+        )
+        status_reporter = AmyStatusReporter(
+            memory_dir=config.memory_dir,
+            skill_registry=skill_registry,
+            web_search_enabled=True,
+            transcript_logging_enabled=config.log_transcripts,
+        )
 
         def runtime_acknowledgement_start() -> None:
             runtime = runtime_holder.get("runtime")
@@ -51,9 +64,10 @@ class AmyAgent:
             responder=responder,
             speaker=speaker,
             wake_word=config.wake_word,
+            status_reporter=status_reporter,
             memory_store=memory_store,
             memory_classifier=memory_classifier,
-            web_search=DuckDuckGoWebSearch(),
+            web_search=skill_registry.web_search,
             acknowledgment_callback=runtime_acknowledgement_start,
             acknowledgment_stop_callback=runtime_acknowledgement_stop,
             usage_logger=lambda tokens, cost: print(
@@ -65,6 +79,7 @@ class AmyAgent:
             transcriber=FasterWhisperTranscriber(language=config.transcript_language),
             audio_config=AudioConfig(),
             log_transcripts=config.log_transcripts,
+            status_reporter=status_reporter,
             on_status=lambda message: print(f"[amy] {message}"),
         )
         runtime_holder["runtime"] = runtime

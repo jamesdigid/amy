@@ -13,6 +13,7 @@ from typing import Callable
 from ..core.models import AssistantPhase
 from ..modalities.audio import AudioConfig, MicrophoneSource, SpeechSegmenter, Transcriber
 from ..core.controller import AssistantController
+from .status import AmyStatusReporter
 
 
 StatusCallback = Callable[[str], None]
@@ -28,6 +29,7 @@ class AssistantRuntime:
     transcriber: Transcriber
     audio_config: AudioConfig = field(default_factory=AudioConfig)
     log_transcripts: bool = False
+    status_reporter: AmyStatusReporter | None = None
     on_status: StatusCallback = field(default=lambda _message: None)
     _transcript_queue: queue.Queue[str] = field(default_factory=lambda: queue.Queue[str](), init=False)
     _command_queue: queue.Queue[str] = field(default_factory=lambda: queue.Queue[str](), init=False)
@@ -100,6 +102,8 @@ class AssistantRuntime:
 
     def status_text(self) -> str:
         status = self.controller.get_status()
+        if self.status_reporter is not None:
+            return self.status_reporter.build_report(status)
         return (
             f"phase={status.phase.value} "
             f"active={status.active_conversation} "

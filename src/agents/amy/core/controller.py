@@ -10,6 +10,7 @@ from .models import AssistantPhase, AssistantStatus, ConversationTurn, Message
 from .prompts import PromptBuilder
 from ..memory import MemoryClassifierProtocol, MemoryDecision, MemoryDraft, MemoryStoreProtocol
 from ..skills.browser import SearchResult, WebSearcher
+from ..runtime.status import AmyStatusReporter
 
 
 class Responder(Protocol):
@@ -28,6 +29,7 @@ class AssistantController:
     responder: Responder
     speaker: Speaker
     wake_word: str
+    status_reporter: AmyStatusReporter | None = None
     memory_store: MemoryStoreProtocol | None = None
     memory_classifier: MemoryClassifierProtocol | None = None
     web_search: WebSearcher | None = None
@@ -115,6 +117,9 @@ class AssistantController:
             self._logger.debug("cut command matched")
             self.cut_channel()
             return None
+        if self._is_status_command(normalized) or self._is_status_command(transcript):
+            self._logger.debug("status command matched")
+            return self._handle_status_check(transcript)
 
         with self._lock:
             if self.status.paused:
@@ -258,6 +263,19 @@ class AssistantController:
     def _is_cut_command(self, text: str) -> bool:
         return text in {"amy cut", "cut channel", "cut", "stop"}
 
+    def _is_status_command(self, text: str) -> bool:
+        normalized = self._normalize_text(text)
+        phrases = (
+            "status check",
+            "check your status",
+            "check status",
+            "what is your status",
+            "whats your status",
+            "what's your status",
+            "how are you doing",
+        )
+        return any(phrase in normalized for phrase in phrases)
+
     def is_interrupt_command(self, transcript: str) -> bool:
         normalized = self._normalize_text(transcript)
         return self._looks_like_short_interrupt(normalized)
@@ -364,6 +382,31 @@ class AssistantController:
         self.status.active_conversation = True
         self._schedule_post_speech_transition_locked(expects_follow_up=False)
         return reply
+
+    def _handle_status_check(self, transcript: str) -> str:
+        reply = self._build_status_report()
+        with self._lock:
+            self.status.last_user_text = self._strip_wake_word(transcript.strip())
+            self.status.phase = AssistantPhase.SPEAKING
+            self.status.last_assistant_text = reply
+            self.status.active_conversation = True
+        self._stop_acknowledgement_loop()
+        self.speaker.speak(reply)
+        with self._lock:
+            self._schedule_post_speech_transition_locked(expects_follow_up=False)
+        return reply
+
+    def _build_status_report(self) -> str:
+        if self.status_reporter is None:
+            status = self.status
+            error_text = status.error_message.strip() or "no errors"
+            return (
+                f"Status check: {status.phase.value}, "
+                f"{'paused' if status.paused else 'not paused'}, "
+                f"{'active conversation' if status.active_conversation else 'no active conversation'}, "
+                f"{error_text}."
+            )
+        return self.status_reporter.build_report(self.status)
 
     def _limit_follow_up_questions(self, reply: str) -> str:
         first_question_mark = reply.find("?")

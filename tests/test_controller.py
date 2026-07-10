@@ -16,6 +16,7 @@ from agents.amy.memory import (
     MemoryStore,
     MemoryStoreProtocol,
 )
+from agents.amy.runtime.status import AmyStatusReporter
 from agents.amy.skills.browser import SearchResult
 
 
@@ -128,6 +129,7 @@ def build_controller(
     web_search: FakeWebSearch | None = None,
     memory_store: MemoryStoreProtocol | None = None,
     memory_classifier: MemoryClassifierProtocol | None = None,
+    status_reporter: AmyStatusReporter | None = None,
     idle_timeout_seconds: float = 0.1,
     speech_cooldown_seconds: float = 0.05,
     follow_up_timeout_seconds: float = 0.1,
@@ -143,6 +145,7 @@ def build_controller(
         responder=responder,
         speaker=speaker,
         wake_word="amy",
+        status_reporter=status_reporter,
         memory_store=memory_store,
         memory_classifier=memory_classifier,
         idle_timeout_seconds=idle_timeout_seconds,
@@ -162,6 +165,21 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertEqual(responder.calls, [])
         self.assertEqual(speaker.spoken, [])
+
+    def test_status_check_skips_responder_and_speaks_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            status_reporter = AmyStatusReporter(
+                memory_dir=Path(temp_dir),
+                web_search_enabled=False,
+            )
+            controller, responder, speaker, _ = build_controller(status_reporter=status_reporter)
+
+            result = controller.process_transcript("amy status check")
+
+            self.assertIsNotNone(result)
+            self.assertIn("Status check:", result or "")
+            self.assertEqual(responder.calls, [])
+            self.assertEqual(speaker.spoken, [result or ""])
 
     def test_handles_wake_and_reply(self) -> None:
         controller, responder, speaker, _ = build_controller()

@@ -27,6 +27,8 @@ Local Python voice assistant that wakes on `amy`, transcribes speech locally, ca
    - `src/agents/amy/memory/memory.md` is the editable template for the memory format.
    - Keep filenames to at most 10 tags and under 100 characters in the stem.
    - Amy uses an LLM classifier to decide when something should become a durable memory, then writes it through the app’s file I/O layer.
+   - Markdown memories tagged with `skill`, `capability`, `status`, or `plans` are included in Amy's status checks so in-progress capability work can be surfaced.
+   - Amy also runs a lightweight smoke test during status checks to verify registered skills and the local test suite.
 6. Start the assistant:
    ```bash
    python -m amy
@@ -35,8 +37,9 @@ Local Python voice assistant that wakes on `amy`, transcribes speech locally, ca
 ## What To Expect
 - The system runs as a terminal-controlled local assistant, not a background service.
 - Say `amy` to begin a voice interaction.
+- Say `amy status check` or `check your status` to ask Amy for her current runtime status, registered skills, a lightweight smoke test, and relevant skill notes.
 - After Amy responds, she stays in listening mode for about 10 seconds so you can follow up without repeating the wake word.
-- Use the terminal commands `pause`, `resume`, `status`, and `quit` to control the channel.
+- Use the terminal commands `pause`, `resume`, `status`, and `quit` to control the channel. `status` prints the same richer status report that Amy can speak aloud.
 - Ask current or lookup-style questions and Amy will add basic web search context automatically.
 - Amy can also retrieve matching markdown memories from `src/agents/amy/memory` when your prompt terms match the dot-delimited file tags.
 - Say things like `remember that...`, `remember this...`, or `don't forget...` to make Amy consider saving a future memory.

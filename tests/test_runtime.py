@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import tempfile
 import threading
 import unittest
 from pathlib import Path
 
 from agents.amy.core.models import AssistantPhase
 from agents.amy.modalities.audio import AudioConfig, StubTranscriber
-from agents.amy.runtime import AssistantRuntime
+from agents.amy.runtime.assistant import AssistantRuntime
+from agents.amy.runtime.status import AmyStatusReporter
 import agents.amy.runtime.assistant as runtime_module
 
 
@@ -64,6 +66,23 @@ class RuntimeTests(unittest.TestCase):
             Path(runtime._acknowledgement_sound_path).parent.name,  # type: ignore[attr-defined]
             "assets",
         )
+
+    def test_status_text_uses_status_reporter(self) -> None:
+        controller = DummyController()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            reporter = AmyStatusReporter(memory_dir=Path(temp_dir), web_search_enabled=False)
+            runtime = AssistantRuntime(
+                controller=controller,  # type: ignore[arg-type]
+                transcriber=StubTranscriber("pause"),
+                audio_config=AudioConfig(),
+                status_reporter=reporter,
+                on_status=controller.status_messages.append,
+            )
+
+            status_text = runtime.status_text()
+
+            self.assertIn("Status check:", status_text)
+            self.assertIn("Capabilities:", status_text)
 
     def test_handle_command_transcript_only_processes_interrupts(self) -> None:
         controller = DummyController()
