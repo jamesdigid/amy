@@ -2,11 +2,20 @@ from __future__ import annotations
 
 import threading
 import time
+import tempfile
 import unittest
+from pathlib import Path
 
 from amy.context import PromptBuilder
 from amy.controller import AssistantController
 from amy.models import Message
+from amy.memory import (
+    MemoryClassifierProtocol,
+    MemoryDecision,
+    MemoryDraft,
+    MemoryStore,
+    MemoryStoreProtocol,
+)
 from amy.web_search import SearchResult
 
 
@@ -74,26 +83,73 @@ class FakeWebSearch:
         ]
 
 
+class FakeMemoryStore:
+    def __init__(self, response: str = "### Memory: team.md\nTeam memory") -> None:
+        self.response = response
+        self.prompts: list[str] = []
+        self.saved: list[MemoryDraft] = []
+
+    def retrieve_context(self, prompt: str, limit: int = 3) -> str:
+        self.prompts.append(prompt)
+        return self.response
+
+    def draft_from_prompt(self, prompt: str, subject: str | None = None) -> MemoryDraft | None:
+        return MemoryDraft(
+            path=Path("/tmp/team.md"),
+            tags=("team",),
+            summary=prompt,
+            memories=(prompt,),
+            retrieval_notes=("draft",),
+            content="# Memory\n",
+        )
+
+    def save_draft(self, draft: MemoryDraft) -> Path:
+        self.saved.append(draft)
+        return draft.path
+
+
+class FakeMemoryClassifier:
+    def __init__(self, should_save: bool = False, subject: str = "") -> None:
+        self.should_save = should_save
+        self.subject = subject
+        self.calls: list[str] = []
+
+    def classify(self, prompt: str, cancel_event: threading.Event) -> MemoryDecision:
+        self.calls.append(prompt)
+        return MemoryDecision(
+            should_save=self.should_save,
+            subject=self.subject,
+            confidence=0.99 if self.should_save else 0.01,
+            reason="test classifier",
+        )
+
+
 def build_controller(
     web_search: FakeWebSearch | None = None,
+    memory_store: MemoryStoreProtocol | None = None,
+    memory_classifier: MemoryClassifierProtocol | None = None,
     idle_timeout_seconds: float = 0.1,
     speech_cooldown_seconds: float = 0.05,
+    follow_up_timeout_seconds: float = 0.1,
 ) -> tuple[AssistantController, FakeResponder, FakeSpeaker, FakeWebSearch | None]:
     responder = FakeResponder()
     speaker = FakeSpeaker()
     controller = AssistantController(
         prompt_builder=PromptBuilder(
                 assistant_name="Amy",
-            project_context="",
+                project_context="",
                 wake_word="amy",
         ),
         responder=responder,
         speaker=speaker,
         wake_word="amy",
+        memory_store=memory_store,
+        memory_classifier=memory_classifier,
         idle_timeout_seconds=idle_timeout_seconds,
         web_search=web_search,
     )
     controller.speech_cooldown_seconds = speech_cooldown_seconds
+    controller.follow_up_timeout_seconds = follow_up_timeout_seconds
     return controller, responder, speaker, web_search
 
 
@@ -198,6 +254,52 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertEqual(len(responder.calls), 1)
         self.assertEqual(speaker.spoken, ["Yes."])
 
+    def test_memory_request_saves_immediately(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            memory_store = MemoryStore(memory_dir=Path(temp_dir))
+            memory_classifier = FakeMemoryClassifier(should_save=True, subject="favorite editor is vim")
+            controller, responder, speaker, _ = build_controller(
+                memory_store=memory_store,
+                memory_classifier=memory_classifier,
+            )
+
+            reply = controller.process_transcript("amy my favorite editor is vim")
+
+            self.assertIn("favorite.editor.vim.md", reply or "")
+            self.assertEqual(responder.calls, [])
+            self.assertEqual(speaker.spoken, ["Saved as `favorite.editor.vim.md`."])
+            self.assertEqual(memory_classifier.calls, ["my favorite editor is vim"])
+            saved_path = Path(temp_dir) / "favorite.editor.vim.md"
+            self.assertTrue(saved_path.exists())
+            self.assertIn("favorite editor is vim", saved_path.read_text(encoding="utf-8").lower())
+
+    def test_memory_request_falls_back_when_classifier_is_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            memory_store = MemoryStore(memory_dir=Path(temp_dir))
+            controller, responder, speaker, _ = build_controller(memory_store=memory_store)
+
+            reply = controller.process_transcript("amy remember that sky is blue")
+
+            self.assertIn("sky.blue.md", reply or "")
+            self.assertEqual(responder.calls, [])
+            self.assertEqual(speaker.spoken, ["Saved as `sky.blue.md`."])
+
+    def test_explicit_memory_request_saves_even_if_classifier_declines(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            memory_store = MemoryStore(memory_dir=Path(temp_dir))
+            memory_classifier = FakeMemoryClassifier(should_save=False)
+            controller, responder, speaker, _ = build_controller(
+                memory_store=memory_store,
+                memory_classifier=memory_classifier,
+            )
+
+            reply = controller.process_transcript("amy remember that sky is blue")
+
+            self.assertIn("sky.blue.md", reply or "")
+            self.assertEqual(memory_classifier.calls, ["remember that sky is blue"])
+            self.assertEqual(responder.calls, [])
+            self.assertEqual(speaker.spoken, ["Saved as `sky.blue.md`."])
+
     def test_acknowledgement_prefix_is_not_ignored(self) -> None:
         controller, responder, speaker, _ = build_controller()
 
@@ -233,6 +335,7 @@ class AssistantControllerTests(unittest.TestCase):
             idle_timeout_seconds=0.05,
         )
         controller.speech_cooldown_seconds = 0.05
+        controller.follow_up_timeout_seconds = 0.2
 
         result = controller.process_transcript("amy summarize this")
 
@@ -254,7 +357,7 @@ class AssistantControllerTests(unittest.TestCase):
 
         self.assertEqual(controller.get_status().phase.value, "awaiting_user_response")
 
-        time.sleep(0.1)
+        time.sleep(0.25)
 
         self.assertFalse(controller.get_status().active_conversation)
         self.assertEqual(controller.get_status().phase.value, "idle")
@@ -319,6 +422,16 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertIn("Example result", responder.calls[0][0].content)
         self.assertIn("Example article text with details.", responder.calls[0][0].content)
         self.assertNotIn("https://example.com", responder.calls[0][0].content)
+
+    def test_prompt_injects_relevant_memory_context(self) -> None:
+        memory_store = FakeMemoryStore()
+        controller, responder, _speaker, _ = build_controller(memory_store=memory_store)
+
+        controller.process_transcript("amy remind me about the team memory")
+
+        self.assertEqual(memory_store.prompts, ["remind me about the team memory"])
+        self.assertIn("Relevant memories", responder.calls[0][0].content)
+        self.assertIn("### Memory: team.md", responder.calls[0][0].content)
 
     def test_acknowledgement_loop_starts_and_stops_on_search(self) -> None:
         loop = FakeAcknowledgementLoop()

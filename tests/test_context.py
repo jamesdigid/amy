@@ -43,3 +43,28 @@ class PromptBuilderTests(unittest.TestCase):
         self.assertIn("Search query: x", messages[0].content)
         self.assertIn("Never read raw URL links aloud", messages[0].content)
         self.assertIn("Treat every interaction as live voice conversation", messages[0].content)
+
+    def test_includes_memory_context_near_project_context(self) -> None:
+        builder = PromptBuilder(
+            assistant_name="Amy",
+            project_context="Prefer concise answers.",
+            wake_word="amy",
+        )
+
+        messages = builder.build_messages([], "new request", memory_context="### Memory: team.md")
+
+        self.assertIn("Relevant memories", messages[0].content)
+        self.assertIn("### Memory: team.md", messages[0].content)
+        self.assertIn("Project context:", messages[0].content)
+
+    def test_system_prompt_mentions_cross_session_memory(self) -> None:
+        builder = PromptBuilder(
+            assistant_name="Amy",
+            project_context="Prefer concise answers.",
+            wake_word="amy",
+        )
+
+        messages = builder.build_messages([], "new request")
+
+        self.assertIn("remember something", messages[0].content)
+        self.assertIn("stored across sessions", messages[0].content)

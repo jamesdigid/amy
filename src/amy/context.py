@@ -17,8 +17,11 @@ class PromptBuilder:
         turns: list[ConversationTurn],
         user_text: str,
         web_context: str = "",
+        memory_context: str = "",
     ) -> list[Message]:
         system_prompt = self._build_system_prompt()
+        if memory_context:
+            system_prompt = f"{system_prompt}\n\nRelevant memories:\n{memory_context}".strip()
         if web_context:
             system_prompt = f"{system_prompt}\n\nCurrent web context:\n{web_context}".strip()
         messages: list[Message] = [Message(role="system", content=system_prompt)]
@@ -35,6 +38,7 @@ class PromptBuilder:
             f"You are {self.assistant_name}, a concise local voice assistant.",
             f"The wake word is '{self.wake_word}'.",
             "Use the supplied project context to shape tone, priorities, and output format.",
+            "When the user asks you to remember something, treat it as durable memory that can be stored across sessions.",
             "Treat every interaction as live voice conversation, not typed chat.",
             "Keep responses short enough to speak naturally, and prefer one clear question at a time.",
             "If you need a follow-up, ask exactly one short question and stop.",

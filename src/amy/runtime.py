@@ -29,6 +29,7 @@ class AssistantRuntime:
     controller: AssistantController
     transcriber: Transcriber
     audio_config: AudioConfig = field(default_factory=AudioConfig)
+    log_transcripts: bool = False
     on_status: StatusCallback = field(default=lambda _message: None)
     _transcript_queue: queue.Queue[str] = field(default_factory=lambda: queue.Queue[str](), init=False)
     _command_queue: queue.Queue[str] = field(default_factory=lambda: queue.Queue[str](), init=False)
@@ -133,7 +134,7 @@ class AssistantRuntime:
                     if segment is None:
                         continue
                     text = self.transcriber.transcribe(segment.path)
-                    logger.debug("transcribed main segment: %r", text)
+                    self._log_transcript("main", text)
                     if not self._should_queue_main_transcript():
                         continue
                     self._transcript_queue.put(text)
@@ -170,6 +171,7 @@ class AssistantRuntime:
                 continue
             try:
                 command_logger.debug("processing transcript: %r", transcript)
+                self._log_transcript("command", transcript)
                 self.handle_command_transcript(transcript)
             except Exception as exc:  # pragma: no cover - runtime path
                 self.controller.status.error_message = str(exc)
@@ -188,6 +190,15 @@ class AssistantRuntime:
 
         status = self.controller.get_status()
         return status.phase not in {AssistantPhase.PAUSED}
+
+    def _log_transcript(
+        self,
+        source: str,
+        transcript: str,
+    ) -> None:
+        if not self.log_transcripts:
+            return
+        logger.info("transcribed %s transcript: %r", source, transcript)
 
     def handle_command_transcript(self, transcript: str) -> None:
         if self.controller.is_interrupt_command(transcript):

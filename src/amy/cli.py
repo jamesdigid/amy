@@ -11,6 +11,7 @@ from .config import AppConfig, load_config
 from .context import PromptBuilder
 from .controller import AssistantController
 from .openai_service import OpenAIResponder
+from .memory import MemoryStore, OpenAIMemoryClassifier
 from .runtime import AssistantRuntime
 from .tts import LocalSpeaker
 from .transcription import FasterWhisperTranscriber
@@ -33,6 +34,8 @@ class AssistantApp:
             wake_word=config.wake_word,
             recent_turns=config.recent_turns,
         )
+        memory_store = MemoryStore(memory_dir=config.memory_dir)
+        memory_classifier = OpenAIMemoryClassifier(api_key=config.api_key, model=config.model)
         responder = OpenAIResponder(api_key=config.api_key, model=config.model)
         speaker = LocalSpeaker()
         def runtime_acknowledgement_start() -> None:
@@ -50,6 +53,8 @@ class AssistantApp:
             responder=responder,
             speaker=speaker,
             wake_word=config.wake_word,
+            memory_store=memory_store,
+            memory_classifier=memory_classifier,
             web_search=DuckDuckGoWebSearch(),
             acknowledgment_callback=runtime_acknowledgement_start,
             acknowledgment_stop_callback=runtime_acknowledgement_stop,
@@ -61,6 +66,7 @@ class AssistantApp:
             controller=controller,
             transcriber=FasterWhisperTranscriber(language=config.transcript_language),
             audio_config=AudioConfig(),
+            log_transcripts=config.log_transcripts,
             on_status=lambda message: print(f"[amy] {message}"),
         )
         runtime_holder["runtime"] = runtime

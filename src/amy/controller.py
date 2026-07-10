@@ -8,6 +8,7 @@ from typing import Callable, Protocol
 
 from .context import PromptBuilder
 from .models import AssistantPhase, AssistantStatus, ConversationTurn, Message
+from .memory import MemoryClassifierProtocol, MemoryDecision, MemoryDraft, MemoryStoreProtocol
 from .web_search import SearchResult, WebSearcher
 
 
@@ -27,9 +28,12 @@ class AssistantController:
     responder: Responder
     speaker: Speaker
     wake_word: str
+    memory_store: MemoryStoreProtocol | None = None
+    memory_classifier: MemoryClassifierProtocol | None = None
     web_search: WebSearcher | None = None
     web_search_limit: int = 4
     idle_timeout_seconds: float = 10.0
+    follow_up_timeout_seconds: float = 30.0
     usage_logger: Callable[[int, float], None] | None = None
     acknowledgment_callback: Callable[[], None] | None = None
     acknowledgment_stop_callback: Callable[[], None] | None = None
@@ -142,20 +146,59 @@ class AssistantController:
                 self.status.phase = AssistantPhase.RECORDING
                 self._logger.debug("wake word matched; capturing prompt")
 
+            memory_decision: MemoryDecision | None = None
+            if self.memory_classifier is not None:
+                try:
+                    memory_decision = self.memory_classifier.classify(prompt, self._cancel_event)
+                    self._logger.debug(
+                        "memory classifier decision: save=%s subject=%r confidence=%.2f reason=%r",
+                        memory_decision.should_save,
+                        memory_decision.subject,
+                        memory_decision.confidence,
+                        memory_decision.reason,
+                    )
+                except Exception as exc:  # pragma: no cover - runtime path
+                    self._logger.warning("memory classifier failed: %s", exc)
+
+            explicit_memory_request = self._is_memory_request(prompt)
+            should_save_memory = explicit_memory_request or (
+                memory_decision is not None and memory_decision.should_save
+            )
+            if should_save_memory and self.memory_store is not None:
+                self._logger.debug(
+                    "memory save triggered: explicit=%s classifier=%s",
+                    explicit_memory_request,
+                    None if memory_decision is None else memory_decision.should_save,
+                )
+                draft = self.memory_store.draft_from_prompt(
+                    prompt,
+                    subject=memory_decision.subject if memory_decision and memory_decision.subject else None,
+                )
+                if draft is not None:
+                    return self._save_memory_draft(draft)
+
             web_context = ""
+            memory_context = ""
             search_query = self._extract_search_query(prompt)
             if self.web_search is not None and search_query:
                 self._logger.debug("web search triggered: %r", search_query)
                 self._emit_acknowledgement()
                 web_results = self.web_search.search(search_query, self.web_search_limit)
                 web_context = self._format_web_context(search_query, web_results)
+            if self.memory_store is not None:
+                memory_context = self.memory_store.retrieve_context(prompt)
 
             self.status.phase = AssistantPhase.THINKING
             self.status.last_user_text = prompt
             self.turns.append(ConversationTurn(role="user", content=prompt))
             self._cancel_event.clear()
 
-        messages = self.prompt_builder.build_messages(self.turns[:-1], prompt, web_context=web_context)
+        messages = self.prompt_builder.build_messages(
+            self.turns[:-1],
+            prompt,
+            web_context=web_context,
+            memory_context=memory_context,
+        )
         if self.usage_logger is not None:
             token_count = self._estimate_tokens(messages)
             self.usage_logger(token_count, token_count * 0.00015)
@@ -274,6 +317,34 @@ class AssistantController:
         )
         return any(signal in normalized for signal in follow_up_signals)
 
+    def _is_memory_request(self, text: str) -> bool:
+        request_signals = (
+            "remember this",
+            "remember that",
+            "remember for later",
+            "save this for later",
+            "don't forget",
+            "dont forget",
+            "note this",
+            "keep this in mind",
+        )
+        return any(signal in text for signal in request_signals)
+
+    def _save_memory_draft(self, draft: MemoryDraft) -> str:
+        if self.memory_store is None:
+            reply = "I can't save that right now."
+        else:
+            saved_path = self.memory_store.save_draft(draft)
+            reply = f"Saved as `{saved_path.name}`."
+        self.status.last_user_text = draft.path.name
+        self.status.phase = AssistantPhase.SPEAKING
+        self.status.last_assistant_text = reply
+        self._stop_acknowledgement_loop()
+        self.speaker.speak(reply)
+        self.status.active_conversation = True
+        self._schedule_post_speech_transition_locked(expects_follow_up=False)
+        return reply
+
     def _limit_follow_up_questions(self, reply: str) -> str:
         first_question_mark = reply.find("?")
         if first_question_mark < 0:
@@ -356,14 +427,15 @@ class AssistantController:
             lines.append(f"{index}. {result.title}{snippet}{content}")
         return "\n".join(lines)
 
-    def _schedule_idle_timeout_locked(self) -> None:
+    def _schedule_idle_timeout_locked(self, timeout_seconds: float | None = None) -> None:
         self._cancel_idle_timer_locked()
-        if self.idle_timeout_seconds <= 0:
+        timeout = self.idle_timeout_seconds if timeout_seconds is None else timeout_seconds
+        if timeout <= 0:
             self.status.active_conversation = False
             self.status.phase = AssistantPhase.IDLE
             return
 
-        timer = threading.Timer(self.idle_timeout_seconds, self._set_idle)
+        timer = threading.Timer(timeout, self._set_idle)
         timer.daemon = True
         self._idle_timer = timer
         timer.start()
@@ -376,7 +448,7 @@ class AssistantController:
             self.status.phase = (
                 AssistantPhase.AWAITING_USER_RESPONSE if expects_follow_up else AssistantPhase.LISTENING
             )
-            self._schedule_idle_timeout_locked()
+            self._schedule_post_speech_idle_timeout_locked(expects_follow_up)
             return
 
         timer = threading.Timer(
@@ -406,7 +478,13 @@ class AssistantController:
             self.status.phase = (
                 AssistantPhase.AWAITING_USER_RESPONSE if expects_follow_up else AssistantPhase.LISTENING
             )
-            self._schedule_idle_timeout_locked()
+            self._schedule_post_speech_idle_timeout_locked(expects_follow_up)
+
+    def _schedule_post_speech_idle_timeout_locked(self, expects_follow_up: bool) -> None:
+        if expects_follow_up:
+            self._schedule_idle_timeout_locked(timeout_seconds=self.follow_up_timeout_seconds)
+            return
+        self._schedule_idle_timeout_locked(timeout_seconds=self.idle_timeout_seconds)
 
     def _set_idle(self) -> None:
         with self._lock:
