@@ -31,7 +31,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-agents.amy = ["assets/*.aiff"]
+"agents.amy" = ["assets/*.aiff", "memory/*.md"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

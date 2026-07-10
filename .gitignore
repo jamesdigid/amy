@@ -15,5 +15,5 @@ __pycache__/
 *.egg-info/
 build/
 dist/
-memory/*.md
-!memory/memory.md
+src/agents/amy/memory/*.md
+!src/agents/amy/memory/memory.md

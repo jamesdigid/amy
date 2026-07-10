@@ -23,8 +23,8 @@ Local Python voice assistant that wakes on `amy`, transcribes speech locally, ca
    export OPENAI_API_KEY="your-openai-api-key"
    ```
 4. Optionally edit `config/project_context.md` to shape Amy's tone and behavior for your project.
-5. Store durable memories in `memory/*.md` and use dot-delimited filename tags for retrieval.
-   - `memory/memory.md` is the editable template for the memory format.
+5. Store durable memories in `src/agents/amy/memory/*.md` and use dot-delimited filename tags for retrieval.
+   - `src/agents/amy/memory/memory.md` is the editable template for the memory format.
    - Keep filenames to at most 10 tags and under 100 characters in the stem.
    - Amy uses an LLM classifier to decide when something should become a durable memory, then writes it through the app’s file I/O layer.
 6. Start the assistant:
@@ -38,7 +38,7 @@ Local Python voice assistant that wakes on `amy`, transcribes speech locally, ca
 - After Amy responds, she stays in listening mode for about 10 seconds so you can follow up without repeating the wake word.
 - Use the terminal commands `pause`, `resume`, `status`, and `quit` to control the channel.
 - Ask current or lookup-style questions and Amy will add basic web search context automatically.
-- Amy can also retrieve matching markdown memories from `memory` when your prompt terms match the dot-delimited file tags.
+- Amy can also retrieve matching markdown memories from `src/agents/amy/memory` when your prompt terms match the dot-delimited file tags.
 - Say things like `remember that...`, `remember this...`, or `don't forget...` to make Amy consider saving a future memory.
 - Local speech-to-text and local text-to-speech keep OpenAI usage text-only and cost-effective.
 - Set `AMY_LOG_TRANSCRIPTS=1` if you want Amy to log the raw transcripts she hears.

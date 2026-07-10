@@ -43,7 +43,7 @@ def load_config(base_dir: Path | None = None) -> AppConfig:
         _get_env_with_fallback(
             "AMY_MEMORY_DIR",
             "AIMEE_MEMORY_DIR",
-            str(workspace / "memory"),
+            str(workspace / "src" / "agents" / "amy" / "memory"),
         )
     )
     recent_turns_text = _get_env_with_fallback("AMY_RECENT_TURNS", "AIMEE_RECENT_TURNS", "6")

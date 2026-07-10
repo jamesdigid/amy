@@ -31,7 +31,7 @@ class ConfigTests(unittest.TestCase):
                 self.assertEqual(config.api_key, "test-key")
                 self.assertEqual(config.model, "gpt-test")
                 self.assertEqual(config.project_context, "Use short answers.")
-                self.assertEqual(config.memory_dir, base_path / "memory")
+                self.assertEqual(config.memory_dir, base_path / "src" / "agents" / "amy" / "memory")
                 self.assertTrue(config.log_transcripts)
 
     def test_load_config_reads_memory_dir_override(self) -> None:
