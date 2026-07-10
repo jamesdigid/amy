@@ -191,12 +191,12 @@ class AssistantRuntime:
 
     def _log_transcript(
         self,
-        source: str,
+        _source: str,
         transcript: str,
     ) -> None:
         if not self.log_transcripts:
             return
-        logger.info("transcribed %s transcript: %r", source, transcript)
+        logger.info("%s", transcript)
 
     def handle_command_transcript(self, transcript: str) -> None:
         if self.controller.is_interrupt_command(transcript):

@@ -196,9 +196,10 @@ class AssistantControllerTests(unittest.TestCase):
 
         time.sleep(0.08)
 
-        self.assertEqual(controller.get_status().phase.value, "listening")
+        self.assertEqual(controller.get_status().phase.value, "awaiting_user_response")
+        self.assertTrue(controller.get_status().active_conversation)
 
-        time.sleep(0.2)
+        time.sleep(0.15)
 
         self.assertFalse(controller.get_status().active_conversation)
         self.assertEqual(controller.get_status().phase.value, "idle")
@@ -362,7 +363,7 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertFalse(controller.get_status().active_conversation)
         self.assertEqual(controller.get_status().phase.value, "idle")
 
-    def test_wrap_up_question_ends_session_immediately(self) -> None:
+    def test_wrap_up_question_keeps_session_open_for_follow_up(self) -> None:
         responder = FakeResponder(response="Is there anything else I can help you with?")
         speaker = FakeSpeaker()
         controller = AssistantController(
@@ -383,6 +384,16 @@ class AssistantControllerTests(unittest.TestCase):
 
         self.assertEqual(result, "Is there anything else I can help you with?")
         self.assertEqual(speaker.spoken, ["Is there anything else I can help you with?"])
+        self.assertTrue(controller.get_status().active_conversation)
+        self.assertEqual(controller.get_status().phase.value, "cooldown")
+
+        time.sleep(0.08)
+
+        self.assertEqual(controller.get_status().phase.value, "awaiting_user_response")
+        self.assertTrue(controller.get_status().active_conversation)
+
+        time.sleep(0.25)
+
         self.assertFalse(controller.get_status().active_conversation)
         self.assertEqual(controller.get_status().phase.value, "idle")
 
@@ -392,9 +403,9 @@ class AssistantControllerTests(unittest.TestCase):
         controller.process_transcript("amy start")
         controller.process_transcript("pause conversation")
 
-        self.assertFalse(controller.get_status().active_conversation)
-        self.assertFalse(controller.get_status().paused)
-        self.assertEqual(controller.get_status().phase.value, "idle")
+        self.assertTrue(controller.get_status().active_conversation)
+        self.assertTrue(controller.get_status().paused)
+        self.assertEqual(controller.get_status().phase.value, "paused")
         self.assertGreaterEqual(speaker.stopped, 1)
 
     def test_resume_continues_preserved_conversation(self) -> None:
@@ -402,18 +413,32 @@ class AssistantControllerTests(unittest.TestCase):
 
         controller.process_transcript("amy start")
         controller.pause()
+        self.assertTrue(controller.get_status().paused)
+        self.assertEqual(controller.get_status().phase.value, "paused")
         controller.resume()
+        self.assertFalse(controller.get_status().paused)
+        self.assertEqual(controller.get_status().phase.value, "awaiting_user_response")
         controller.process_transcript("amy continue this thread")
 
         self.assertGreaterEqual(len(responder.calls), 2)
         self.assertEqual(responder.calls[-1][-1].content, "continue this thread")
         self.assertEqual(responder.calls[-1][1].content, "start")
 
-    def test_pause_interrupts_and_keeps_listening_for_redirect(self) -> None:
+    def test_pause_blocks_transcripts_until_resume(self) -> None:
         controller, responder, speaker, _ = build_controller()
 
         controller.process_transcript("amy summarize this")
         controller.pause()
+        self.assertTrue(controller.get_status().paused)
+        self.assertEqual(controller.get_status().phase.value, "paused")
+
+        self.assertIsNone(controller.process_transcript("amy redirect to web search"))
+        self.assertEqual(len(responder.calls), 1)
+
+        controller.resume()
+        self.assertFalse(controller.get_status().paused)
+        self.assertEqual(controller.get_status().phase.value, "awaiting_user_response")
+
         controller.process_transcript("amy redirect to web search")
 
         self.assertGreaterEqual(speaker.stopped, 1)

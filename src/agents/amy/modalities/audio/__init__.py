@@ -38,7 +38,7 @@ class AudioConfig:
     sample_rate: int = 16000
     frame_ms: int = 30
     pre_roll_ms: int = 300
-    silence_ms: int = 700
+    silence_ms: int = 1000
     rms_threshold: int = 500
 
     @property

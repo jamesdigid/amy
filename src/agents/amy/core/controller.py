@@ -58,15 +58,18 @@ class AssistantController:
             self._cancel_speech_cooldown_locked()
             self._cancel_event.set()
             self.speaker.stop()
-            self.status.active_conversation = False
-            self.status.phase = AssistantPhase.IDLE
-            self.status.paused = False
+            self.status.paused = True
+            self.status.phase = AssistantPhase.PAUSED
 
     def resume(self) -> None:
         with self._lock:
             self._logger.debug("resume requested")
             self.status.paused = False
-            self.status.phase = AssistantPhase.LISTENING
+            if self.status.active_conversation:
+                self.status.phase = AssistantPhase.AWAITING_USER_RESPONSE
+                self._schedule_post_speech_idle_timeout_locked(expects_follow_up=True)
+            else:
+                self.status.phase = AssistantPhase.LISTENING
 
     def cut_channel(self) -> None:
         with self._lock:
@@ -140,11 +143,17 @@ class AssistantController:
                     self.status.phase = AssistantPhase.COOLDOWN
                     self._stop_acknowledgement_loop()
                     self.speaker.speak("Amy here")
-                    self._schedule_post_speech_transition_locked(expects_follow_up=False)
+                    self._schedule_post_speech_transition_locked(expects_follow_up=True)
                     return None
                 self.status.active_conversation = True
                 self.status.phase = AssistantPhase.RECORDING
                 self._logger.debug("wake word matched; capturing prompt")
+            else:
+                prompt = self._strip_wake_word(prompt)
+                prompt = self._strip_acknowledgement_prefix(prompt)
+                if not prompt:
+                    self._logger.debug("active conversation but prompt empty after stripping wake word")
+                    return None
 
             memory_decision: MemoryDecision | None = None
             if self.memory_classifier is not None:
@@ -221,18 +230,10 @@ class AssistantController:
 
         with self._lock:
             if not self._cancel_event.is_set():
-                if self._reply_ends_session_immediately(reply):
-                    self._logger.debug("reply complete; ending session immediately")
-                    self._cancel_idle_timer_locked()
-                    self._cancel_speech_cooldown_locked()
-                    self.status.active_conversation = False
-                    self.status.phase = AssistantPhase.IDLE
-                else:
-                    self._logger.debug("reply complete; waiting for follow-up")
-                    self.status.active_conversation = True
-                    self._schedule_post_speech_transition_locked(
-                        expects_follow_up=self._reply_expects_follow_up(reply)
-                    )
+                expects_follow_up = self._reply_expects_follow_up(reply) or self._reply_ends_session_immediately(reply)
+                self._logger.debug("reply complete; waiting for follow-up")
+                self.status.active_conversation = True
+                self._schedule_post_speech_transition_locked(expects_follow_up=expects_follow_up)
         return reply
 
     def get_status(self) -> AssistantStatus:

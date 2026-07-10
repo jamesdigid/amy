@@ -7,6 +7,7 @@ from pathlib import Path
 from agents.amy.core.models import AssistantPhase
 from agents.amy.modalities.audio import AudioConfig, StubTranscriber
 from agents.amy.runtime import AssistantRuntime
+import agents.amy.runtime.assistant as runtime_module
 
 
 class DummySpeaker:
@@ -102,3 +103,94 @@ class RuntimeTests(unittest.TestCase):
 
         controller.status.phase = AssistantPhase.AWAITING_USER_RESPONSE
         self.assertTrue(runtime._should_queue_main_transcript())
+
+    def test_capture_loop_resets_segmenter_while_main_audio_is_dropped(self) -> None:
+        class FakeSegment:
+            def __init__(self, path: Path) -> None:
+                self.path = path
+                self.duration_seconds = 1.0
+
+        class FakeSpeechSegmenter:
+            instances: list["FakeSpeechSegmenter"] = []
+
+            def __init__(self, _config: AudioConfig) -> None:
+                self.kind = "main" if not FakeSpeechSegmenter.instances else "command"
+                self.feed_calls = 0
+                self.reset_calls = 0
+                self.absolute_feed_count = 0
+                self.segment_start_frame = 0
+                FakeSpeechSegmenter.instances.append(self)
+
+            def feed(self, _frame: bytes) -> FakeSegment | None:
+                self.feed_calls += 1
+                self.absolute_feed_count += 1
+                if self.feed_calls == 1:
+                    self.segment_start_frame = self.absolute_feed_count
+                if self.kind == "command":
+                    return None
+                if self.feed_calls < 3:
+                    return None
+                return FakeSegment(Path(f"segment-{self.segment_start_frame}.wav"))
+
+            def reset(self) -> None:
+                self.reset_calls += 1
+                self.feed_calls = 0
+                self.segment_start_frame = 0
+                return None
+
+        class FakeMicrophoneSource:
+            def __init__(self, _config: AudioConfig) -> None:
+                self._frames = [b"1", b"2", b"3", b"4", b"5"]
+
+            def __enter__(self) -> "FakeMicrophoneSource":
+                return self
+
+            def __exit__(self, *_exc: object) -> None:
+                return None
+
+            def frames(self) -> list[bytes]:
+                return self._frames
+
+        class FakeTranscriber:
+            def __init__(self) -> None:
+                self.paths: list[Path] = []
+
+            def transcribe(self, audio_path: Path) -> str:
+                self.paths.append(audio_path)
+                return "hello"
+
+        class DropThenListenController(DummyController):
+            def __init__(self) -> None:
+                super().__init__()
+                self.drop_calls = 0
+
+            def should_drop_main_transcript(self) -> bool:
+                self.drop_calls += 1
+                return True
+
+        original_speech_segmenter = runtime_module.SpeechSegmenter
+        original_microphone_source = runtime_module.MicrophoneSource
+        try:
+            runtime_module.SpeechSegmenter = FakeSpeechSegmenter  # type: ignore[assignment]
+            runtime_module.MicrophoneSource = FakeMicrophoneSource  # type: ignore[assignment]
+
+            controller = DropThenListenController()
+            transcriber = FakeTranscriber()
+            runtime = AssistantRuntime(
+                controller=controller,  # type: ignore[arg-type]
+                transcriber=transcriber,  # type: ignore[arg-type]
+                audio_config=AudioConfig(),
+                on_status=controller.status_messages.append,
+            )
+            runtime._capture_enabled.set()
+
+            runtime._capture_loop()
+
+            main_segmenter = FakeSpeechSegmenter.instances[0]
+            self.assertEqual(controller.drop_calls, 5)
+            self.assertEqual(main_segmenter.reset_calls, 5)
+            self.assertEqual(main_segmenter.feed_calls, 0)
+            self.assertEqual(transcriber.paths, [])
+        finally:
+            runtime_module.SpeechSegmenter = original_speech_segmenter  # type: ignore[assignment]
+            runtime_module.MicrophoneSource = original_microphone_source  # type: ignore[assignment]
