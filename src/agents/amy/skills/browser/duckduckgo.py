@@ -1,5 +1,5 @@
 from __future__ import annotations
 
-from amy.web_search import DuckDuckGoWebSearch
+from . import DuckDuckGoWebSearch
 
 __all__ = ["DuckDuckGoWebSearch"]

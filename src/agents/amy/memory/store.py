@@ -1,5 +1,5 @@
 from __future__ import annotations
 
-from amy.memory import MemoryStore
+from . import MemoryStore
 
 __all__ = ["MemoryStore"]

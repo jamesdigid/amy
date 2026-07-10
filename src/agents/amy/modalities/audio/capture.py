@@ -1,5 +1,5 @@
 from __future__ import annotations
 
-from amy.audio import MicrophoneSource
+from . import MicrophoneSource
 
 __all__ = ["MicrophoneSource"]

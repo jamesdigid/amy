@@ -1,5 +1,5 @@
 from __future__ import annotations
 
-from amy.web_search import SearchResult
+from . import SearchResult
 
 __all__ = ["SearchResult"]

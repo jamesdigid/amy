@@ -362,6 +362,30 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertFalse(controller.get_status().active_conversation)
         self.assertEqual(controller.get_status().phase.value, "idle")
 
+    def test_wrap_up_question_ends_session_immediately(self) -> None:
+        responder = FakeResponder(response="Is there anything else I can help you with?")
+        speaker = FakeSpeaker()
+        controller = AssistantController(
+            prompt_builder=PromptBuilder(
+                assistant_name="Amy",
+                project_context="",
+                wake_word="amy",
+            ),
+            responder=responder,
+            speaker=speaker,
+            wake_word="amy",
+            idle_timeout_seconds=0.05,
+        )
+        controller.speech_cooldown_seconds = 0.05
+        controller.follow_up_timeout_seconds = 0.2
+
+        result = controller.process_transcript("amy summarize this")
+
+        self.assertEqual(result, "Is there anything else I can help you with?")
+        self.assertEqual(speaker.spoken, ["Is there anything else I can help you with?"])
+        self.assertFalse(controller.get_status().active_conversation)
+        self.assertEqual(controller.get_status().phase.value, "idle")
+
     def test_pause_and_cut_commands_change_state(self) -> None:
         controller, _responder, speaker, _ = build_controller()
 
