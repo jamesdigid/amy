@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field
 import threading
 from typing import TYPE_CHECKING, Iterable, cast
 
@@ -16,14 +17,13 @@ class OpenAIResponder:
     model: str
     max_output_tokens: int = 300
     temperature: float = 0.2
+    _client: object | None = field(default=None, init=False, repr=False)
 
     def generate_reply(self, messages: list[Message], cancel_event: threading.Event) -> str:
         if cancel_event.is_set():
             return ""
 
-        from openai import OpenAI
-
-        client = OpenAI(api_key=self.api_key)
+        client = self._get_client()
         payload = cast(
             "list[ChatCompletionMessageParam]",
             [{"role": message.role, "content": message.content} for message in messages],
@@ -41,6 +41,13 @@ class OpenAIResponder:
         choice = response.choices[0]
         content = choice.message.content or ""
         return content.strip()
+
+    def _get_client(self) -> object:
+        if self._client is None:
+            from openai import OpenAI
+
+            self._client = OpenAI(api_key=self.api_key)
+        return self._client
 
     @staticmethod
     def count_prompt_tokens(messages: Iterable[Message]) -> int:

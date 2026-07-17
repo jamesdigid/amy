@@ -52,6 +52,10 @@ class AssistantRuntime:
         self._stop_event.clear()
         self._acknowledgement_stop.clear()
         self._capture_enabled.set()
+        warmup = getattr(self.transcriber, "warmup", None)
+        if callable(warmup):
+            logger.debug("warming transcription model")
+            warmup()
         self._worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
         self._worker_thread.start()
         self._command_thread = threading.Thread(target=self._command_worker_loop, daemon=True)
@@ -124,7 +128,14 @@ class AssistantRuntime:
                     if command_segment is not None:
                         if command_segment.duration_seconds > 2.5:
                             continue
+                        command_started = time.perf_counter()
                         command_text = self.transcriber.transcribe(command_segment.path)
+                        command_elapsed = time.perf_counter() - command_started
+                        command_logger.debug(
+                            "command transcript ready in %.3fs for %.2fs audio",
+                            command_elapsed,
+                            command_segment.duration_seconds,
+                        )
                         if self.controller.is_interrupt_command(command_text):
                             self._command_queue.put(command_text)
 
@@ -135,7 +146,14 @@ class AssistantRuntime:
                     segment = speech_segmenter.feed(frame)
                     if segment is None:
                         continue
+                    transcript_started = time.perf_counter()
                     text = self.transcriber.transcribe(segment.path)
+                    transcript_elapsed = time.perf_counter() - transcript_started
+                    logger.debug(
+                        "main transcript ready in %.3fs for %.2fs audio",
+                        transcript_elapsed,
+                        segment.duration_seconds,
+                    )
                     self._log_transcript("main", text)
                     if not self._should_queue_main_transcript():
                         continue
@@ -155,7 +173,10 @@ class AssistantRuntime:
             if not transcript.strip():
                 continue
             try:
+                worker_started = time.perf_counter()
                 self.controller.process_transcript(transcript)
+                worker_elapsed = time.perf_counter() - worker_started
+                logger.debug("controller processed transcript in %.3fs", worker_elapsed)
             except Exception as exc:  # pragma: no cover - runtime path
                 self.controller.status.error_message = str(exc)
                 self.on_status(f"worker error: {exc}")

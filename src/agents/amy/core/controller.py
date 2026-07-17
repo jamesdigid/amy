@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import logging
 import re
 import threading
+import time
 from typing import Callable, Protocol
 
 from .models import AssistantPhase, AssistantStatus, ConversationTurn, Message
@@ -95,6 +96,7 @@ class AssistantController:
             self.status.paused = False
 
     def process_transcript(self, transcript: str) -> str | None:
+        process_started = time.perf_counter()
         normalized = self._normalize_text(transcript)
         if not normalized:
             return None
@@ -160,12 +162,17 @@ class AssistantController:
                     self._logger.debug("active conversation but prompt empty after stripping wake word")
                     return None
 
+            explicit_memory_request = self._is_memory_request(prompt)
             memory_decision: MemoryDecision | None = None
-            if self.memory_classifier is not None:
+            memory_considered = self._should_consider_memory(prompt)
+            if self.memory_classifier is not None and memory_considered:
+                classifier_started = time.perf_counter()
                 try:
                     memory_decision = self.memory_classifier.classify(prompt, self._cancel_event)
+                    classifier_elapsed = time.perf_counter() - classifier_started
                     self._logger.debug(
-                        "memory classifier decision: save=%s subject=%r confidence=%.2f reason=%r",
+                        "memory classifier decision in %.3fs: save=%s subject=%r confidence=%.2f reason=%r",
+                        classifier_elapsed,
                         memory_decision.should_save,
                         memory_decision.subject,
                         memory_decision.confidence,
@@ -173,8 +180,9 @@ class AssistantController:
                     )
                 except Exception as exc:  # pragma: no cover - runtime path
                     self._logger.warning("memory classifier failed: %s", exc)
+            elif self.memory_classifier is not None:
+                self._logger.debug("skipping memory classifier for prompt profile")
 
-            explicit_memory_request = self._is_memory_request(prompt)
             should_save_memory = explicit_memory_request or (
                 memory_decision is not None and memory_decision.should_save
             )
@@ -195,12 +203,18 @@ class AssistantController:
             memory_context = ""
             search_query = self._extract_search_query(prompt)
             if self.web_search is not None and search_query:
+                web_started = time.perf_counter()
                 self._logger.debug("web search triggered: %r", search_query)
                 self._emit_acknowledgement()
                 web_results = self.web_search.search(search_query, self.web_search_limit)
                 web_context = self._format_web_context(search_query, web_results)
+                web_elapsed = time.perf_counter() - web_started
+                self._logger.debug("web search completed in %.3fs", web_elapsed)
             if self.memory_store is not None:
+                memory_started = time.perf_counter()
                 memory_context = self.memory_store.retrieve_context(prompt)
+                memory_elapsed = time.perf_counter() - memory_started
+                self._logger.debug("memory retrieval completed in %.3fs", memory_elapsed)
 
             self.status.phase = AssistantPhase.THINKING
             self.status.last_user_text = prompt
@@ -217,7 +231,10 @@ class AssistantController:
             token_count = self._estimate_tokens(messages)
             self.usage_logger(token_count, token_count * 0.00015)
         self._logger.debug("sending %d messages to responder", len(messages))
+        reply_started = time.perf_counter()
         reply = self.responder.generate_reply(messages, self._cancel_event)
+        reply_elapsed = time.perf_counter() - reply_started
+        self._logger.debug("responder completed in %.3fs", reply_elapsed)
 
         if self._cancel_event.is_set():
             self._logger.debug("reply cancelled before speech")
@@ -231,7 +248,9 @@ class AssistantController:
 
         self._logger.debug("speaking reply: %r", reply)
         self._stop_acknowledgement_loop()
+        speak_started = time.perf_counter()
         self.speaker.speak(reply)
+        speak_elapsed = time.perf_counter() - speak_started
 
         with self._lock:
             if not self._cancel_event.is_set():
@@ -239,6 +258,13 @@ class AssistantController:
                 self._logger.debug("reply complete; waiting for follow-up")
                 self.status.active_conversation = True
                 self._schedule_post_speech_transition_locked(expects_follow_up=expects_follow_up)
+        total_elapsed = time.perf_counter() - process_started
+        self._logger.debug(
+            "transcript profile: total=%.3fs reply=%.3fs speech=%.3fs",
+            total_elapsed,
+            reply_elapsed,
+            speak_elapsed,
+        )
         return reply
 
     def get_status(self) -> AssistantStatus:
@@ -367,6 +393,52 @@ class AssistantController:
             "keep this in mind",
         )
         return any(signal in text for signal in request_signals)
+
+    def _should_consider_memory(self, prompt: str) -> bool:
+        normalized = self._normalize_text(prompt)
+        if self._is_memory_request(normalized):
+            return True
+        if self._looks_like_direct_question(normalized):
+            return False
+        if self._extract_search_query(prompt):
+            return False
+
+        memory_signals = (
+            "i am ",
+            "i'm ",
+            "my ",
+            "we are ",
+            "we're ",
+            "our ",
+            "prefer ",
+            "favorite ",
+            "favourite ",
+            "birthday ",
+            "anniversary ",
+        )
+        return any(signal in normalized for signal in memory_signals)
+
+    def _looks_like_direct_question(self, normalized: str) -> bool:
+        if normalized.endswith("?"):
+            return True
+        question_starters = (
+            "who ",
+            "what ",
+            "when ",
+            "where ",
+            "why ",
+            "how ",
+            "is ",
+            "are ",
+            "can ",
+            "could ",
+            "should ",
+            "would ",
+            "do ",
+            "does ",
+            "did ",
+        )
+        return normalized.startswith(question_starters)
 
     def _save_memory_draft(self, draft: MemoryDraft) -> str:
         if self.memory_store is None:

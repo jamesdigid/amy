@@ -38,7 +38,7 @@ class AudioConfig:
     sample_rate: int = 16000
     frame_ms: int = 30
     pre_roll_ms: int = 300
-    silence_ms: int = 1000
+    silence_ms: int = 700
     rms_threshold: int = 500
 
     @property
@@ -175,19 +175,27 @@ class _WhisperModel(Protocol):
 class FasterWhisperTranscriber:
     model_name: str = "base"
     language: str | None = None
+    _model_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._model: _WhisperModel | None = None
 
     def _load_model(self) -> _WhisperModel:
-        if self._model is None:
-            from faster_whisper import WhisperModel
+        if self._model is not None:
+            return self._model
 
-            self._model = cast(
-                _WhisperModel,
-                WhisperModel(self.model_name, device="cpu", compute_type="int8"),
-            )
+        with self._model_lock:
+            if self._model is None:
+                from faster_whisper import WhisperModel
+
+                self._model = cast(
+                    _WhisperModel,
+                    WhisperModel(self.model_name, device="cpu", compute_type="int8"),
+                )
         return self._model
+
+    def warmup(self) -> None:
+        self._load_model()
 
     def transcribe(self, audio_path: Path) -> str:
         model = self._load_model()

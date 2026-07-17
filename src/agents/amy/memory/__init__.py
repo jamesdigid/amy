@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import re
 from pathlib import Path
@@ -115,14 +115,13 @@ class OpenAIMemoryClassifier:
     model: str
     max_output_tokens: int = 120
     temperature: float = 0.0
+    _client: object | None = field(default=None, init=False, repr=False)
 
     def classify(self, prompt: str, cancel_event: "threading.Event") -> MemoryDecision:
         if cancel_event.is_set():
             return MemoryDecision(should_save=False)
 
-        from openai import OpenAI
-
-        client = OpenAI(api_key=self.api_key)
+        client = self._get_client()
         messages = [
             {
                 "role": "system",
@@ -152,6 +151,13 @@ class OpenAIMemoryClassifier:
 
         content = response.choices[0].message.content or ""
         return self._parse_decision(content)
+
+    def _get_client(self) -> object:
+        if self._client is None:
+            from openai import OpenAI
+
+            self._client = OpenAI(api_key=self.api_key)
+        return self._client
 
     def _parse_decision(self, content: str) -> MemoryDecision:
         match = re.search(r"\{.*\}", content, re.DOTALL)

@@ -490,6 +490,20 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertIn("Example article text with details.", responder.calls[0][0].content)
         self.assertNotIn("https://example.com", responder.calls[0][0].content)
 
+    def test_memory_classifier_is_skipped_for_direct_questions(self) -> None:
+        web_search = FakeWebSearch()
+        memory_classifier = FakeMemoryClassifier(should_save=True)
+        controller, _responder, _speaker, web_search = build_controller(
+            web_search=web_search,
+            memory_classifier=memory_classifier,
+        )
+
+        controller.process_transcript("amy what is the weather today")
+
+        assert web_search is not None
+        self.assertEqual(web_search.queries, [("what is the weather today", 4)])
+        self.assertEqual(memory_classifier.calls, [])
+
     def test_prompt_injects_relevant_memory_context(self) -> None:
         memory_store = FakeMemoryStore()
         controller, responder, _speaker, _ = build_controller(memory_store=memory_store)
