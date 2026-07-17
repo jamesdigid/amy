@@ -4,42 +4,69 @@ Local Python voice assistant that wakes on `amy`, transcribes speech locally, ca
 
 ## Requirements
 - macOS
-- Python 3.10 or newer (3.11 recommended)
+- Python 3.10 or newer
 - An OpenAI API key in `OPENAI_API_KEY`
 
-## Bring It Online
-1. Create and activate a Python 3.11 virtual environment:
-   ```bash
-   python3.11 -m venv .venv
-   source .venv/bin/activate
-   ```
-2. Upgrade packaging tools and install the assistant:
-   ```bash
-   python -m pip install --upgrade pip
-   pip install -e ".[audio,dev]"
-   ```
-3. Set your OpenAI key:
-   ```bash
-   export OPENAI_API_KEY="your-openai-api-key"
-   ```
-4. Optionally edit `config/project_context.md` to shape Amy's tone and behavior for your project.
-5. Store durable memories in `src/agents/amy/memory/*.md` and use dot-delimited filename tags for retrieval.
-   - `src/agents/amy/memory/memory.md` is the editable template for the memory format.
-   - Keep filenames to at most 10 tags and under 100 characters in the stem.
-   - Amy uses an LLM classifier to decide when something should become a durable memory, then writes it through the app’s file I/O layer.
-   - Markdown memories tagged with `skill`, `capability`, `status`, or `plans` are included in Amy's status checks so in-progress capability work can be surfaced.
-   - Amy also runs a lightweight smoke test during status checks to verify registered skills and the local test suite.
-6. Start the assistant:
-   ```bash
-   python -m amy
-   ```
+## Quick Start
+The repo now supports a single bootstrap script:
+
+```bash
+./scripts/amy setup
+```
+
+That creates the local virtual environment and installs the assistant with audio and developer dependencies.
+
+Before you run Amy, create a local `.env` file from the example:
+
+```bash
+cp .env.example .env
+```
+
+Then add your OpenAI key to `.env`:
+
+```bash
+OPENAI_API_KEY=your-openai-api-key
+```
+
+To deploy Amy in the background after setup:
+
+```bash
+./scripts/amy deploy
+```
+
+## Lifecycle Commands
+- `./scripts/amy run` starts Amy in the foreground with the interactive command loop.
+- `./scripts/amy setup` creates `.venv` and installs dependencies.
+- `./scripts/amy start` launches Amy in the background.
+- `./scripts/amy stop` stops the background process.
+- `./scripts/amy status` reports whether the background process is running.
+- `./scripts/amy deploy` runs setup if needed and then starts Amy.
+
+After setup, you can also use the installed console script inside the venv:
+
+```bash
+amy run
+```
+
+## Configuration
+Optional environment variables:
+- `AMY_MODEL`
+- `AMY_ASSISTANT_NAME`
+- `AMY_CONTEXT_PATH`
+- `AMY_MEMORY_DIR`
+- `AMY_RECENT_TURNS`
+- `AMY_WAKE_WORD`
+- `AMY_TRANSCRIPT_LANGUAGE`
+- `AMY_LOG_TRANSCRIPTS`
+
+You can also edit `config/project_context.md` to shape Amy's tone and behavior for your project.
 
 ## What To Expect
-- The system runs as a terminal-controlled local assistant, not a background service.
+- Amy runs locally and uses terminal commands for lifecycle control.
 - Say `amy` to begin a voice interaction.
 - Say `amy status check` or `check your status` to ask Amy for her current runtime status, registered skills, a lightweight smoke test, and relevant skill notes.
 - After Amy responds, she stays in listening mode for about 10 seconds so you can follow up without repeating the wake word.
-- Use the terminal commands `pause`, `resume`, `status`, and `quit` to control the channel. `status` prints the same richer status report that Amy can speak aloud.
+- Use the terminal commands `pause`, `resume`, `status`, and `quit` while running in the foreground.
 - Ask current or lookup-style questions and Amy will add basic web search context automatically.
 - Amy can also retrieve matching markdown memories from `src/agents/amy/memory` when your prompt terms match the dot-delimited file tags.
 - Say things like `remember that...`, `remember this...`, or `don't forget...` to make Amy consider saving a future memory.
@@ -47,6 +74,7 @@ Local Python voice assistant that wakes on `amy`, transcribes speech locally, ca
 - Set `AMY_LOG_TRANSCRIPTS=1` if you want Amy to log the raw transcripts she hears.
 
 ## Notes
-- If `python3.11` is not available, install Python 3.11 first and rerun the steps above.
-- The default `python3` on this machine is 3.9, which is too old for this project.
+- Background start/stop state is stored under `.amy/`.
+- `.env` is loaded automatically by `./scripts/amy` when it exists.
+- If `python3` is not available, install Python 3.10+ first and rerun `./scripts/amy setup`.
 - For microphone access during a call, use `pause` so Amy releases the channel immediately.

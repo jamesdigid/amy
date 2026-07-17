@@ -6,11 +6,13 @@ build-backend = "setuptools.build_meta"
 name = "amy-research-assistant"
 version = "0.1.0"
 description = "Local voice assistant that wakes on amy, transcribes locally, and talks to OpenAI with project context."
-readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "openai>=1.40.0",
 ]
+
+[project.scripts]
+amy = "agents.cli:main"
 
 [project.optional-dependencies]
 audio = [

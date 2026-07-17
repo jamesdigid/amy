@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VENV_DIR="$ROOT_DIR/.venv"
+AMY_BIN="$VENV_DIR/bin/amy"
+PYTHON_BIN="${PYTHON:-python3}"
+ENV_FILE="$ROOT_DIR/.env"
+
+usage() {
+  cat <<'EOF'
+Usage: ./scripts/amy <command> [args]
+
+Commands:
+  setup   Create the local virtual environment and install dependencies
+  run     Run the assistant in the foreground
+  start   Start Amy in the background
+  stop    Stop the background process
+  status  Show the background process status
+  deploy  Set up and start Amy
+EOF
+}
+
+bootstrap() {
+  if [ ! -d "$VENV_DIR" ]; then
+    if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+      echo "python3 is required to bootstrap Amy." >&2
+      exit 1
+    fi
+    "$PYTHON_BIN" -m venv "$VENV_DIR"
+  fi
+
+  "$VENV_DIR/bin/python" -m pip install --upgrade pip
+  "$VENV_DIR/bin/python" -m pip install -e ".[audio,dev]"
+}
+
+ensure_installed() {
+  if [ ! -x "$AMY_BIN" ]; then
+    bootstrap
+  fi
+}
+
+load_env_file() {
+  if [ -f "$ENV_FILE" ]; then
+    # shellcheck disable=SC1090
+    set -a
+    . "$ENV_FILE"
+    set +a
+  fi
+}
+
+requires_openai_key() {
+  if [ -z "${OPENAI_API_KEY:-}" ]; then
+    echo "OPENAI_API_KEY is required to run Amy. Export it and rerun the command." >&2
+    exit 1
+  fi
+}
+
+command="${1:-run}"
+load_env_file
+
+case "$command" in
+  -h|--help|help)
+    usage
+    exit 0
+    ;;
+  setup)
+    bootstrap
+    exit 0
+    ;;
+  run|start|stop|status|deploy)
+    ensure_installed
+    case "$command" in
+      run|start|deploy)
+        requires_openai_key
+        ;;
+    esac
+    exec "$AMY_BIN" "$@"
+    ;;
+  *)
+    ensure_installed
+    exec "$AMY_BIN" "$@"
+    ;;
+esac

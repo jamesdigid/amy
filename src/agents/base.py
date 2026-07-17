@@ -5,7 +5,7 @@ from typing import Protocol
 
 
 class RunnableAgent(Protocol):
-    def run(self) -> int: ...
+    def run(self, *, interactive: bool = True) -> int: ...
 
 
 class AgentBuilder(Protocol):

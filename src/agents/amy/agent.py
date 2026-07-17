@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import logging
 import os
+import signal
+import threading
 
 from ..providers.openai import OpenAIResponder
 from .config import AppConfig, load_config
@@ -85,26 +87,42 @@ class AmyAgent:
         runtime_holder["runtime"] = runtime
         return cls(config=config, runtime=runtime)
 
-    def run(self) -> int:
+    def run(self, *, interactive: bool = True) -> int:
         print("Amy is ready.")
-        print("Commands: pause, resume, status, quit")
+        if interactive:
+            print("Commands: pause, resume, status, quit")
         self.runtime.start()
+        stop_event = threading.Event()
+
+        def _request_stop(_signum: int, _frame: object | None) -> None:
+            stop_event.set()
+
         try:
-            while True:
-                command = input("> ").strip().lower()
-                if command in {"quit", "exit"}:
-                    break
-                if command == "pause":
-                    self.runtime.pause_capture()
-                    continue
-                if command == "resume":
-                    self.runtime.resume_capture()
-                    continue
-                if command == "status":
-                    print(self.runtime.status_text())
-                    continue
-                if command:
-                    print("Unknown command. Use pause, resume, status, or quit.")
+            if interactive:
+                while True:
+                    command = input("> ").strip().lower()
+                    if command in {"quit", "exit"}:
+                        break
+                    if command == "pause":
+                        self.runtime.pause_capture()
+                        continue
+                    if command == "resume":
+                        self.runtime.resume_capture()
+                        continue
+                    if command == "status":
+                        print(self.runtime.status_text())
+                        continue
+                    if command:
+                        print("Unknown command. Use pause, resume, status, or quit.")
+            else:
+                previous_sigint = signal.signal(signal.SIGINT, _request_stop)
+                previous_sigterm = signal.signal(signal.SIGTERM, _request_stop)
+                try:
+                    while not stop_event.wait(timeout=0.5):
+                        continue
+                finally:
+                    signal.signal(signal.SIGINT, previous_sigint)
+                    signal.signal(signal.SIGTERM, previous_sigterm)
         except KeyboardInterrupt:
             print("\nShutting down.")
         finally:
