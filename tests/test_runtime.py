@@ -149,7 +149,11 @@ class RuntimeTests(unittest.TestCase):
                     return None
                 if self.feed_calls < 3:
                     return None
-                return FakeSegment(Path(f"segment-{self.segment_start_frame}.wav"))
+                temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                temp_path = Path(temp_file.name)
+                temp_file.write(b"RIFF")
+                temp_file.close()
+                return FakeSegment(temp_path)
 
             def reset(self) -> None:
                 self.reset_calls += 1
@@ -209,7 +213,74 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(controller.drop_calls, 5)
             self.assertEqual(main_segmenter.reset_calls, 5)
             self.assertEqual(main_segmenter.feed_calls, 0)
-            self.assertEqual(transcriber.paths, [])
+        finally:
+            runtime_module.SpeechSegmenter = original_speech_segmenter  # type: ignore[assignment]
+            runtime_module.MicrophoneSource = original_microphone_source  # type: ignore[assignment]
+
+    def test_capture_loop_cleans_up_transcribed_audio_segments(self) -> None:
+        class FakeSegment:
+            def __init__(self, path: Path) -> None:
+                self.path = path
+                self.duration_seconds = 1.0
+
+        class FakeSpeechSegmenter:
+            def __init__(self, _config: AudioConfig) -> None:
+                self.feed_calls = 0
+
+            def feed(self, _frame: bytes) -> FakeSegment | None:
+                self.feed_calls += 1
+                if self.feed_calls < 3:
+                    return None
+                temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                temp_path = Path(temp_file.name)
+                temp_file.write(b"RIFF")
+                temp_file.close()
+                return FakeSegment(temp_path)
+
+            def reset(self) -> None:
+                return None
+
+        class FakeMicrophoneSource:
+            def __init__(self, _config: AudioConfig) -> None:
+                self._frames = [b"1", b"2", b"3"]
+
+            def __enter__(self) -> "FakeMicrophoneSource":
+                return self
+
+            def __exit__(self, *_exc: object) -> None:
+                return None
+
+            def frames(self) -> list[bytes]:
+                return self._frames
+
+        class FakeTranscriber:
+            def __init__(self) -> None:
+                self.paths: list[Path] = []
+
+            def transcribe(self, audio_path: Path) -> str:
+                self.paths.append(audio_path)
+                return "hello"
+
+        original_speech_segmenter = runtime_module.SpeechSegmenter
+        original_microphone_source = runtime_module.MicrophoneSource
+        try:
+            runtime_module.SpeechSegmenter = FakeSpeechSegmenter  # type: ignore[assignment]
+            runtime_module.MicrophoneSource = FakeMicrophoneSource  # type: ignore[assignment]
+
+            controller = DummyController()
+            transcriber = FakeTranscriber()
+            runtime = AssistantRuntime(
+                controller=controller,  # type: ignore[arg-type]
+                transcriber=transcriber,  # type: ignore[arg-type]
+                audio_config=AudioConfig(),
+                on_status=controller.status_messages.append,
+            )
+            runtime._capture_enabled.set()
+
+            runtime._capture_loop()
+
+            self.assertGreaterEqual(len(transcriber.paths), 1)
+            self.assertTrue(all(not path.exists() for path in transcriber.paths))
         finally:
             runtime_module.SpeechSegmenter = original_speech_segmenter  # type: ignore[assignment]
             runtime_module.MicrophoneSource = original_microphone_source  # type: ignore[assignment]

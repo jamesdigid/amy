@@ -201,6 +201,30 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertFalse(controller.get_status().active_conversation)
         self.assertEqual(controller.get_status().phase.value, "idle")
 
+    def test_responder_failure_uses_fallback_reply(self) -> None:
+        class FailingResponder:
+            def generate_reply(self, messages: list[Message], cancel_event: threading.Event) -> str:
+                raise RuntimeError("network down")
+
+        speaker = FakeSpeaker()
+        controller = AssistantController(
+            prompt_builder=PromptBuilder(
+                assistant_name="Amy",
+                project_context="",
+                wake_word="amy",
+            ),
+            responder=FailingResponder(),
+            speaker=speaker,
+            wake_word="amy",
+        )
+
+        result = controller.process_transcript("amy summarize this")
+
+        self.assertEqual(result, "Sorry, I had trouble reaching the server.")
+        self.assertEqual(speaker.spoken, ["Sorry, I had trouble reaching the server."])
+        self.assertIn("network down", controller.get_status().error_message)
+        self.assertEqual(controller.get_status().phase.value, "cooldown")
+
     def test_wake_word_alone_only_acknowledges(self) -> None:
         controller, responder, speaker, _ = build_controller()
 

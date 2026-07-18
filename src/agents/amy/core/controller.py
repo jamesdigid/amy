@@ -5,23 +5,14 @@ import logging
 import re
 import threading
 import time
-from typing import Callable, Protocol
+from typing import Callable
 
 from .models import AssistantPhase, AssistantStatus, ConversationTurn, Message
 from .prompts import PromptBuilder
-from ..memory import MemoryClassifierProtocol, MemoryDecision, MemoryDraft, MemoryStoreProtocol
+from .protocols import MemoryClassifierProtocol, MemoryStoreProtocol, Responder, Speaker
+from ..memory import MemoryDecision, MemoryDraft
 from ..skills.browser import SearchResult, WebSearcher
 from ..runtime.status import AmyStatusReporter
-
-
-class Responder(Protocol):
-    def generate_reply(self, messages: list[Message], cancel_event: threading.Event) -> str: ...
-
-
-class Speaker(Protocol):
-    def speak(self, text: str) -> None: ...
-
-    def stop(self) -> None: ...
 
 
 @dataclass
@@ -232,7 +223,11 @@ class AssistantController:
             self.usage_logger(token_count, token_count * 0.00015)
         self._logger.debug("sending %d messages to responder", len(messages))
         reply_started = time.perf_counter()
-        reply = self.responder.generate_reply(messages, self._cancel_event)
+        try:
+            reply = self.responder.generate_reply(messages, self._cancel_event)
+        except Exception as exc:  # pragma: no cover - runtime path
+            self._logger.exception("responder failed")
+            return self._handle_responder_failure(str(exc))
         reply_elapsed = time.perf_counter() - reply_started
         self._logger.debug("responder completed in %.3fs", reply_elapsed)
 
@@ -453,6 +448,20 @@ class AssistantController:
         self.speaker.speak(reply)
         self.status.active_conversation = True
         self._schedule_post_speech_transition_locked(expects_follow_up=False)
+        return reply
+
+    def _handle_responder_failure(self, error_message: str) -> str:
+        reply = "Sorry, I had trouble reaching the server."
+        with self._lock:
+            self.status.error_message = error_message
+            self.status.phase = AssistantPhase.SPEAKING
+            self.status.last_assistant_text = reply
+            self.turns.append(ConversationTurn(role="assistant", content=reply))
+        self._stop_acknowledgement_loop()
+        self.speaker.speak(reply)
+        with self._lock:
+            self.status.active_conversation = True
+            self._schedule_post_speech_transition_locked(expects_follow_up=False)
         return reply
 
     def _handle_status_check(self, transcript: str) -> str:

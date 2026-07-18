@@ -127,9 +127,13 @@ class AssistantRuntime:
                     command_segment = command_segmenter.feed(frame)
                     if command_segment is not None:
                         if command_segment.duration_seconds > 2.5:
+                            self._cleanup_audio_segment(command_segment.path)
                             continue
                         command_started = time.perf_counter()
-                        command_text = self.transcriber.transcribe(command_segment.path)
+                        try:
+                            command_text = self.transcriber.transcribe(command_segment.path)
+                        finally:
+                            self._cleanup_audio_segment(command_segment.path)
                         command_elapsed = time.perf_counter() - command_started
                         command_logger.debug(
                             "command transcript ready in %.3fs for %.2fs audio",
@@ -147,7 +151,10 @@ class AssistantRuntime:
                     if segment is None:
                         continue
                     transcript_started = time.perf_counter()
-                    text = self.transcriber.transcribe(segment.path)
+                    try:
+                        text = self.transcriber.transcribe(segment.path)
+                    finally:
+                        self._cleanup_audio_segment(segment.path)
                     transcript_elapsed = time.perf_counter() - transcript_started
                     logger.debug(
                         "main transcript ready in %.3fs for %.2fs audio",
@@ -284,5 +291,11 @@ class AssistantRuntime:
             pre_roll_ms=max(120, self.audio_config.pre_roll_ms // 2),
             silence_ms=max(180, self.audio_config.silence_ms // 2),
         )
+
+    def _cleanup_audio_segment(self, audio_path: Path) -> None:
+        try:
+            audio_path.unlink(missing_ok=True)
+        except OSError:
+            logger.debug("failed to clean up audio segment: %s", audio_path, exc_info=True)
 
 __all__ = ["AssistantRuntime"]

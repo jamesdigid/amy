@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from array import array
 from dataclasses import dataclass, field
 from pathlib import Path
-import audioop
 import contextlib
 from collections import deque
+import math
+import sys
 from typing import Deque, Iterable, Iterator, Protocol, cast
 import logging
 import platform
@@ -70,7 +72,7 @@ class SpeechSegmenter:
 
     def feed(self, frame: bytes) -> AudioSegment | None:
         self._pre_roll.append(frame)
-        rms = audioop.rms(frame, 2)
+        rms = self._rms(frame)
 
         if not self._speaking:
             if rms >= self._config.rms_threshold:
@@ -108,6 +110,20 @@ class SpeechSegmenter:
             wav_file.setframerate(self._config.sample_rate)
             wav_file.writeframes(audio)
         return AudioSegment(path=temp_path, duration_seconds=duration_seconds)
+
+    def _rms(self, frame: bytes) -> int:
+        if not frame:
+            return 0
+
+        samples = array("h")
+        samples.frombytes(frame)
+        if sys.byteorder != "little":
+            samples.byteswap()
+        if not samples:
+            return 0
+
+        mean_square = sum(sample * sample for sample in samples) / len(samples)
+        return math.isqrt(int(mean_square))
 
     def reset(self) -> None:
         self._pre_roll.clear()

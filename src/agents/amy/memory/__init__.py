@@ -4,7 +4,9 @@ from dataclasses import dataclass, field
 import json
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, cast
+
+from ..core.protocols import MemoryClassifierProtocol, MemoryStoreProtocol
 
 if TYPE_CHECKING:
     import threading
@@ -70,18 +72,6 @@ _STOP_WORDS = {
     "was",
     "were",
 }
-
-
-class MemoryStoreProtocol(Protocol):
-    def retrieve_context(self, prompt: str, limit: int = 3) -> str: ...
-
-    def draft_from_prompt(self, prompt: str, subject: str | None = None) -> "MemoryDraft | None": ...
-
-    def save_draft(self, draft: "MemoryDraft") -> Path: ...
-
-
-class MemoryClassifierProtocol(Protocol):
-    def classify(self, prompt: str, cancel_event: "threading.Event") -> "MemoryDecision": ...
 
 
 @dataclass(frozen=True)
