@@ -5,7 +5,7 @@ from pathlib import Path
 import logging
 import re
 
-from ..core.models import AssistantStatus
+from ..models import AssistantStatus
 from ..skills.registry import AmySkillRegistry, SkillSmokeResult
 
 MAX_SKILL_STEM_LENGTH = 100

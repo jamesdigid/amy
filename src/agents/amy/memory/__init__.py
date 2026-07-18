@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from ..core.protocols import MemoryClassifierProtocol, MemoryStoreProtocol
+from ..protocols import MemoryClassifierProtocol, MemoryStoreProtocol
 
 if TYPE_CHECKING:
     import threading

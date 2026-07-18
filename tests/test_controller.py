@@ -6,9 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agents.amy.core.controller import AssistantController
-from agents.amy.core.models import Message
-from agents.amy.core.prompts import PromptBuilder
+from agents.amy.conversation.controller import AssistantController
+from agents.amy.models import Message
+from agents.amy.context.prompts import PromptBuilder
 from agents.amy.memory import (
     MemoryClassifierProtocol,
     MemoryDecision,
@@ -308,13 +308,15 @@ class AssistantControllerTests(unittest.TestCase):
 
             reply = controller.process_transcript("amy my favorite editor is vim")
 
-            self.assertIn("favorite.editor.vim.md", reply or "")
+            self.assertEqual(reply, "Got it.")
             self.assertEqual(responder.calls, [])
-            self.assertEqual(speaker.spoken, ["Saved as `favorite.editor.vim.md`."])
+            self.assertEqual(speaker.spoken, ["Got it."])
             self.assertEqual(memory_classifier.calls, ["my favorite editor is vim"])
             saved_path = Path(temp_dir) / "favorite.editor.vim.md"
             self.assertTrue(saved_path.exists())
             self.assertIn("favorite editor is vim", saved_path.read_text(encoding="utf-8").lower())
+            self.assertTrue(controller.get_status().active_conversation)
+            self.assertEqual(controller.get_status().phase.value, "cooldown")
 
     def test_memory_request_falls_back_when_classifier_is_absent(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -323,9 +325,11 @@ class AssistantControllerTests(unittest.TestCase):
 
             reply = controller.process_transcript("amy remember that sky is blue")
 
-            self.assertIn("sky.blue.md", reply or "")
+            self.assertEqual(reply, "Got it.")
             self.assertEqual(responder.calls, [])
-            self.assertEqual(speaker.spoken, ["Saved as `sky.blue.md`."])
+            self.assertEqual(speaker.spoken, ["Got it."])
+            self.assertTrue(controller.get_status().active_conversation)
+            self.assertEqual(controller.get_status().phase.value, "cooldown")
 
     def test_explicit_memory_request_saves_even_if_classifier_declines(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -338,10 +342,12 @@ class AssistantControllerTests(unittest.TestCase):
 
             reply = controller.process_transcript("amy remember that sky is blue")
 
-            self.assertIn("sky.blue.md", reply or "")
+            self.assertEqual(reply, "Got it.")
             self.assertEqual(memory_classifier.calls, ["remember that sky is blue"])
             self.assertEqual(responder.calls, [])
-            self.assertEqual(speaker.spoken, ["Saved as `sky.blue.md`."])
+            self.assertEqual(speaker.spoken, ["Got it."])
+            self.assertTrue(controller.get_status().active_conversation)
+            self.assertEqual(controller.get_status().phase.value, "cooldown")
 
     def test_acknowledgement_prefix_is_not_ignored(self) -> None:
         controller, responder, speaker, _ = build_controller()

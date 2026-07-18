@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .models import ConversationTurn, Message
+from ..models import ConversationTurn, Message
 
 
 @dataclass
@@ -21,9 +21,9 @@ class PromptBuilder:
     ) -> list[Message]:
         system_prompt = self._build_system_prompt()
         if memory_context:
-            system_prompt = f"{system_prompt}\n\nRelevant memories:\n{memory_context}".strip()
+            system_prompt = "{}\n\nRelevant memories:\n{}".format(system_prompt, memory_context).strip()
         if web_context:
-            system_prompt = f"{system_prompt}\n\nCurrent web context:\n{web_context}".strip()
+            system_prompt = "{}\n\nCurrent web context:\n{}".format(system_prompt, web_context).strip()
         messages: list[Message] = [Message(role="system", content=system_prompt)]
 
         recent_history = turns[-self.recent_turns :]
@@ -53,5 +53,6 @@ class PromptBuilder:
             pieces.append("Project context:")
             pieces.append(self.project_context)
         return "\n\n".join(pieces).strip()
+
 
 __all__ = ["PromptBuilder"]

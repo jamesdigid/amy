@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agents.amy.core.models import AssistantStatus
+from agents.amy.models import AssistantStatus
 from agents.amy.runtime.status import AmyStatusReporter
 from agents.amy.skills.registry import SkillSmokeResult
 

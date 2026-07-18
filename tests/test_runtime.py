@@ -5,7 +5,7 @@ import threading
 import unittest
 from pathlib import Path
 
-from agents.amy.core.models import AssistantPhase
+from agents.amy.models import AssistantPhase
 from agents.amy.modalities.audio import AudioConfig, StubTranscriber
 from agents.amy.runtime.assistant import AssistantRuntime
 from agents.amy.runtime.status import AmyStatusReporter

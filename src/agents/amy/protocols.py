@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from .models import Message
+from .skills.browser import SearchResult
 
 if TYPE_CHECKING:
     import threading
@@ -31,3 +32,15 @@ class MemoryStoreProtocol(Protocol):
 
 class MemoryClassifierProtocol(Protocol):
     def classify(self, prompt: str, cancel_event: threading.Event) -> MemoryDecision: ...
+
+
+class WebSearchProtocol(Protocol):
+    def search(self, query: str, limit: int = 4) -> list[SearchResult]: ...
+
+__all__ = [
+    "MemoryClassifierProtocol",
+    "MemoryStoreProtocol",
+    "Responder",
+    "Speaker",
+    "WebSearchProtocol",
+]

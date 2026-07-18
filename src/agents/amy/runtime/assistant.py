@@ -10,9 +10,9 @@ import threading
 import time
 from typing import Callable
 
-from ..core.models import AssistantPhase
+from ..models import AssistantPhase
 from ..modalities.audio import AudioConfig, MicrophoneSource, SpeechSegmenter, Transcriber
-from ..core.controller import AssistantController
+from ..conversation.controller import AssistantController
 from .status import AmyStatusReporter
 
 

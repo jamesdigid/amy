@@ -5,7 +5,7 @@ from dataclasses import field
 import threading
 from typing import TYPE_CHECKING, Iterable, cast
 
-from ..amy.core.models import Message
+from ..amy.models import Message
 
 if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionMessageParam
