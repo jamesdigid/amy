@@ -12,7 +12,7 @@ from typing import Callable
 
 from ..models import AssistantPhase
 from ..modalities.audio import AudioConfig, MicrophoneSource, SpeechSegmenter, Transcriber
-from ..conversation.controller import AssistantController
+from ..controller import AssistantController
 from .status import AmyStatusReporter
 
 

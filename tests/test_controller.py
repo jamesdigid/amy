@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agents.amy.conversation.controller import AssistantController
+from agents.amy.controller import AssistantController
 from agents.amy.models import Message
 from agents.amy.context.prompts import PromptBuilder
 from agents.amy.memory import (

@@ -9,7 +9,7 @@ import threading
 
 from ..providers.openai import OpenAIResponder
 from .config import AppConfig, load_config
-from .conversation.controller import AssistantController
+from .controller import AssistantController
 from .context.prompts import PromptBuilder
 from .memory import MemoryStore, OpenAIMemoryClassifier
 from .modalities.audio import AudioConfig, FasterWhisperTranscriber, LocalSpeaker
@@ -136,6 +136,6 @@ def _configure_logging() -> None:
     command_log_level_name = os.environ.get("AMY_COMMAND_LOG_LEVEL", "WARNING").upper()
     command_log_level = getattr(logging, command_log_level_name, logging.WARNING)
     logging.basicConfig(level=main_log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    logging.getLogger("agents.amy.conversation.controller").setLevel(main_log_level)
+    logging.getLogger("agents.amy.controller").setLevel(main_log_level)
     logging.getLogger("agents.amy.runtime").setLevel(main_log_level)
     logging.getLogger("amy.command_listener").setLevel(command_log_level)
