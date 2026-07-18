@@ -22,7 +22,7 @@ class AssistantController:
     responder: Responder
     speaker: Speaker
     wake_word: str
-    status_reporter: object | None = None
+    status_reporter: AmyStatusReporter | None = None
     memory_store: MemoryStoreProtocol | None = None
     memory_classifier: MemoryClassifierProtocol | None = None
     web_search: WebSearchProtocol | None = None
@@ -92,42 +92,61 @@ class AssistantController:
 
         self._logger.debug("received transcript: raw=%r normalized=%r", transcript, normalized)
 
+        handled, control_reply = self._handle_control_transcript(normalized, transcript)
+        if handled:
+            return control_reply
+
+        prompt = self._prepare_prompt(transcript, normalized)
+        if prompt is None:
+            return None
+
+        if saved_reply := self._maybe_save_memory(prompt):
+            return saved_reply
+
+        return self._generate_reply(prompt, process_started)
+
+    def _handle_control_transcript(self, normalized: str, transcript: str) -> tuple[bool, str | None]:
         if self._interpreter.is_acknowledgement_echo(
             normalized,
             active_conversation=self.status.active_conversation,
             last_assistant_text=self.status.last_assistant_text,
         ):
             self._logger.debug("dropping acknowledgement echo")
-            return None
+            return True, None
 
         if self._interpreter.is_pause_command(normalized):
             self._logger.debug("pause command matched")
             self.pause()
-            return None
+            return True, None
         if self._interpreter.is_resume_command(normalized):
             self._logger.debug("resume command matched")
             self.resume()
-            return None
+            return True, None
         if self._interpreter.is_cut_command(normalized):
             self._logger.debug("cut command matched")
             self.cut_channel()
-            return None
+            return True, None
         if self._interpreter.is_status_command(normalized):
             self._logger.debug("status command matched")
-            return self._effects.handle_status_check(
-                transcript,
-                interpreter=self._interpreter,
-                session=self._session,
-                idle_timeout_seconds=self.idle_timeout_seconds,
-                follow_up_timeout_seconds=self.follow_up_timeout_seconds,
-                speech_cooldown_seconds=self.speech_cooldown_seconds,
-                logger=self._logger,
+            return (
+                True,
+                self._effects.handle_status_check(
+                    transcript,
+                    interpreter=self._interpreter,
+                    session=self._session,
+                    idle_timeout_seconds=self.idle_timeout_seconds,
+                    follow_up_timeout_seconds=self.follow_up_timeout_seconds,
+                    speech_cooldown_seconds=self.speech_cooldown_seconds,
+                    logger=self._logger,
+                ),
             )
 
         if self._session.should_drop_main_transcript():
             self._logger.debug("dropping transcript because assistant is in speech cooldown")
-            return None
+            return True, None
+        return False, None
 
+    def _prepare_prompt(self, transcript: str, normalized: str) -> str | None:
         prompt = transcript.strip()
         prompt = self._interpreter.strip_acknowledgement_prefix(prompt)
         if not self.status.active_conversation:
@@ -156,7 +175,9 @@ class AssistantController:
             if not prompt:
                 self._logger.debug("active conversation but prompt empty after stripping wake word")
                 return None
+        return prompt
 
+    def _maybe_save_memory(self, prompt: str) -> str | None:
         explicit_memory_request = self._interpreter.is_memory_request(prompt)
         memory_decision: MemoryDecision | None = None
         memory_considered = self._interpreter.should_consider_memory(prompt)
@@ -181,27 +202,31 @@ class AssistantController:
         should_save_memory = explicit_memory_request or (
             memory_decision is not None and memory_decision.should_save
         )
-        if should_save_memory and self.memory_store is not None:
-            self._logger.debug(
-                "memory save triggered: explicit=%s classifier=%s",
-                explicit_memory_request,
-                None if memory_decision is None else memory_decision.should_save,
-            )
-            draft = self.memory_store.draft_from_prompt(
-                prompt,
-                subject=memory_decision.subject if memory_decision and memory_decision.subject else None,
-            )
-            if draft is not None:
-                return self._effects.save_memory_draft(
-                    draft,
-                    prompt,
-                    session=self._session,
-                    idle_timeout_seconds=self.idle_timeout_seconds,
-                    follow_up_timeout_seconds=self.follow_up_timeout_seconds,
-                    speech_cooldown_seconds=self.speech_cooldown_seconds,
-                    logger=self._logger,
-                )
+        if not should_save_memory or self.memory_store is None:
+            return None
 
+        self._logger.debug(
+            "memory save triggered: explicit=%s classifier=%s",
+            explicit_memory_request,
+            None if memory_decision is None else memory_decision.should_save,
+        )
+        draft = self.memory_store.draft_from_prompt(
+            prompt,
+            subject=memory_decision.subject if memory_decision and memory_decision.subject else None,
+        )
+        if draft is None:
+            return None
+        return self._effects.save_memory_draft(
+            draft,
+            prompt,
+            session=self._session,
+            idle_timeout_seconds=self.idle_timeout_seconds,
+            follow_up_timeout_seconds=self.follow_up_timeout_seconds,
+            speech_cooldown_seconds=self.speech_cooldown_seconds,
+            logger=self._logger,
+        )
+
+    def _generate_reply(self, prompt: str, process_started: float) -> str | None:
         web_context, memory_context = self._pipeline.collect_context(prompt, self._interpreter)
         self._session.record_user_turn(prompt)
 
