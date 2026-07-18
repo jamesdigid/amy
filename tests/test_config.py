@@ -51,6 +51,25 @@ class ConfigTests(unittest.TestCase):
                 config = load_config(base_path)
                 self.assertEqual(config.memory_dir, memory_dir)
 
+    def test_load_config_uses_defaults_for_empty_values(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_path = Path(temp_dir)
+            with patch.dict(
+                os.environ,
+                {
+                    "OPENAI_API_KEY": "test-key",
+                    "AMY_MODEL": "",
+                    "AMY_ASSISTANT_NAME": "",
+                    "AMY_TRANSCRIPTION_MODEL": "",
+                },
+                clear=False,
+            ):
+                config = load_config(base_path)
+
+            self.assertEqual(config.model, "gpt-4.1-mini")
+            self.assertEqual(config.assistant_name, "Amy")
+            self.assertEqual(config.transcription_model, "mlx-community/whisper-large-v3-turbo")
+
     def test_load_config_uses_default_transcription_model(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             base_path = Path(temp_dir)

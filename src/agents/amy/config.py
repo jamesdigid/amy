@@ -79,10 +79,15 @@ def load_config(base_dir: Path | None = None) -> AppConfig:
 
 
 def _get_env_with_fallback(primary: str, legacy: str, default: str) -> str:
-    value = os.environ.get(primary)
-    if value is None:
-        value = os.environ.get(legacy, default)
-    return value.strip()
+    for name in (primary, legacy):
+        value = os.environ.get(name)
+        if value is None:
+            continue
+
+        value = value.strip()
+        if value:
+            return value
+    return default
 
 
 def _parse_bool(value: str) -> bool:

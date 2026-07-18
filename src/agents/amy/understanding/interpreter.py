@@ -185,13 +185,6 @@ class TranscriptInterpreter:
             "stock",
             "price",
             "prices",
-            "who is ",
-            "what is ",
-            "when is ",
-            "where is ",
-            "how to ",
-            "compare ",
-            "tell me about ",
         )
         return any(signal in normalized_prompt for signal in search_signals)
 

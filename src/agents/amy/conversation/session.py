@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ConversationSession:
     status: AssistantStatus = field(default_factory=AssistantStatus)
-    turns: list[ConversationTurn] = field(default_factory=list)
+    turns: list[ConversationTurn] = field(default_factory=list[ConversationTurn])
     _cancel_event: threading.Event = field(default_factory=threading.Event, init=False, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _idle_timer: threading.Timer | None = field(default=None, init=False, repr=False)

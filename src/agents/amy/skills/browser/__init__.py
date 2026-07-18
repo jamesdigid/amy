@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 import html
 from html.parser import HTMLParser
@@ -24,6 +25,7 @@ class WebSearcher(Protocol):
 class DuckDuckGoWebSearch:
     def __init__(self, timeout_seconds: float = 5.0) -> None:
         self._timeout_seconds = timeout_seconds
+        self._content_fetch_limit = 2
 
     def search(self, query: str, limit: int = 4) -> list[SearchResult]:
         if not query.strip():
@@ -45,14 +47,32 @@ class DuckDuckGoWebSearch:
     def _parse_results(self, html_text: str, limit: int) -> list[SearchResult]:
         parser = _DuckDuckGoResultParser()
         parser.feed(html_text)
+        parsed_items = parser.results[:limit]
+        content_by_index: dict[int, str] = {}
+        fetch_limit = min(len(parsed_items), self._content_fetch_limit)
+        if fetch_limit > 0:
+            with ThreadPoolExecutor(max_workers=fetch_limit) as executor:
+                futures = {
+                    executor.submit(self._fetch_page_text, self._resolve_url(item.get("url", ""))): index
+                    for index, item in enumerate(parsed_items[:fetch_limit])
+                }
+                for future in as_completed(futures):
+                    content_by_index[futures[future]] = future.result()
+
         results: list[SearchResult] = []
-        for item in parser.results[:limit]:
+        for index, item in enumerate(parsed_items):
             title = self._clean_text(item.get("title", ""))
             url = self._resolve_url(item.get("url", ""))
             snippet = self._clean_text(item.get("snippet", ""))
             if title and url:
-                content = self._fetch_page_text(url)
-                results.append(SearchResult(title=title, url=url, snippet=snippet, content=content))
+                results.append(
+                    SearchResult(
+                        title=title,
+                        url=url,
+                        snippet=snippet,
+                        content=content_by_index.get(index, ""),
+                    )
+                )
         return results
 
     def _resolve_url(self, url: str) -> str:

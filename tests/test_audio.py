@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import sys
+import subprocess
 import types
 import unittest
 from unittest import mock
 from pathlib import Path
 
-from agents.amy.modalities.audio import AudioConfig, MlxWhisperTranscriber, SpeechSegmenter
+from agents.amy.modalities.audio import AudioConfig, LocalSpeaker, MlxWhisperTranscriber, SpeechSegmenter
 
 
 def _silent_frame(samples: int) -> bytes:
@@ -79,3 +80,19 @@ class MlxWhisperTranscriberTests(unittest.TestCase):
                     "word_timestamps": False,
                 },
             )
+
+
+class LocalSpeakerTests(unittest.TestCase):
+    def test_stop_handles_hung_process_timeout(self) -> None:
+        speaker = LocalSpeaker()
+        process = mock.Mock()
+        process.poll.return_value = None
+        process.wait.side_effect = [subprocess.TimeoutExpired(cmd="say", timeout=1), None]
+        speaker._process = process  # type: ignore[attr-defined]
+        speaker.is_speaking.set()
+
+        speaker.stop()
+
+        process.terminate.assert_called_once()
+        process.kill.assert_called_once()
+        self.assertFalse(speaker.is_speaking.is_set())

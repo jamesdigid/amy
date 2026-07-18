@@ -5,9 +5,12 @@ from dataclasses import field
 import threading
 from typing import TYPE_CHECKING, Iterable, cast
 
+from openai import OpenAI
+
 from ..amy.models import Message
 
 if TYPE_CHECKING:
+    from openai.types.chat import ChatCompletion
     from openai.types.chat import ChatCompletionMessageParam
 
 
@@ -17,7 +20,7 @@ class OpenAIResponder:
     model: str
     max_output_tokens: int = 300
     temperature: float = 0.2
-    _client: object | None = field(default=None, init=False, repr=False)
+    _client: OpenAI | None = field(default=None, init=False, repr=False)
 
     def generate_reply(self, messages: list[Message], cancel_event: threading.Event) -> str:
         if cancel_event.is_set():
@@ -25,10 +28,10 @@ class OpenAIResponder:
 
         client = self._get_client()
         payload = cast(
-            "list[ChatCompletionMessageParam]",
+            list[ChatCompletionMessageParam],
             [{"role": message.role, "content": message.content} for message in messages],
         )
-        response = client.chat.completions.create(
+        response: ChatCompletion = client.chat.completions.create(
             model=self.model,
             messages=payload,
             max_tokens=self.max_output_tokens,
@@ -42,10 +45,8 @@ class OpenAIResponder:
         content = choice.message.content or ""
         return content.strip()
 
-    def _get_client(self) -> object:
+    def _get_client(self) -> OpenAI:
         if self._client is None:
-            from openai import OpenAI
-
             self._client = OpenAI(api_key=self.api_key)
         return self._client
 

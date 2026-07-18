@@ -300,7 +300,11 @@ class LocalSpeaker:
         with self._lock:
             if self._process is not None and self._process.poll() is None:
                 self._process.terminate()
-                self._process.wait(timeout=1)
+                try:
+                    self._process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    self._process.kill()
+                    self._process.wait(timeout=1)
             self._process = None
             self.is_speaking.clear()
 

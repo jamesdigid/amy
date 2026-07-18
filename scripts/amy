@@ -49,6 +49,9 @@ import os
 
 MlxWhisperTranscriber(model_repo=os.environ["AMY_TRANSCRIPTION_MODEL"]).warmup()
 PY
+
+  mkdir -p "$ROOT_DIR/.amy"
+  printf 'ready\n' > "$ROOT_DIR/.amy/setup.complete"
 }
 
 ensure_installed() {

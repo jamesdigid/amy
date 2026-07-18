@@ -26,6 +26,22 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(fake_agent.run_calls, [True])
 
+    def test_setup_delegates_to_bootstrap_script(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            paths = cli._service_paths(workspace)
+            scripts_dir = workspace / "scripts"
+            scripts_dir.mkdir(parents=True, exist_ok=True)
+            (scripts_dir / "amy").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+
+            with patch.object(cli.subprocess, "run") as run_mock:
+                cli._setup_environment(paths)
+
+        run_mock.assert_called_once()
+        command = run_mock.call_args.args[0]
+        self.assertEqual(command, [str(workspace / "scripts" / "amy"), "setup"])
+        self.assertEqual(run_mock.call_args.kwargs["cwd"], workspace)
+
     def test_start_writes_pid_and_uses_background_command(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workspace = Path(temp_dir)

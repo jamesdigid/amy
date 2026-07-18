@@ -9,7 +9,7 @@ from .skills.browser import SearchResult
 if TYPE_CHECKING:
     import threading
 
-    from ..memory import MemoryDecision, MemoryDraft
+    from .memory import MemoryDecision, MemoryDraft
 
 
 class Responder(Protocol):

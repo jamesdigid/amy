@@ -6,10 +6,13 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from openai import OpenAI
+
 from ..protocols import MemoryClassifierProtocol, MemoryStoreProtocol
 
 if TYPE_CHECKING:
     import threading
+    from openai.types.chat import ChatCompletionMessageParam
 
 MAX_MEMORY_TAGS = 10
 MAX_MEMORY_STEM_LENGTH = 100
@@ -105,7 +108,7 @@ class OpenAIMemoryClassifier:
     model: str
     max_output_tokens: int = 120
     temperature: float = 0.0
-    _client: object | None = field(default=None, init=False, repr=False)
+    _client: OpenAI | None = field(default=None, init=False, repr=False)
 
     def classify(self, prompt: str, cancel_event: "threading.Event") -> MemoryDecision:
         if cancel_event.is_set():
@@ -128,9 +131,10 @@ class OpenAIMemoryClassifier:
                 "content": prompt,
             },
         ]
+        payload = cast(list[ChatCompletionMessageParam], messages)
         response = client.chat.completions.create(
             model=self.model,
-            messages=cast(list[dict[str, str]], messages),
+            messages=payload,
             max_tokens=self.max_output_tokens,
             temperature=self.temperature,
             response_format={"type": "json_object"},
@@ -142,10 +146,8 @@ class OpenAIMemoryClassifier:
         content = response.choices[0].message.content or ""
         return self._parse_decision(content)
 
-    def _get_client(self) -> object:
+    def _get_client(self) -> OpenAI:
         if self._client is None:
-            from openai import OpenAI
-
             self._client = OpenAI(api_key=self.api_key)
         return self._client
 

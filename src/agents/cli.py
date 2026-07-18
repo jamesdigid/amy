@@ -139,14 +139,7 @@ def _service_paths(workspace: Path) -> ServicePaths:
 
 
 def _setup_environment(paths: ServicePaths) -> None:
-    python_executable = _bootstrap_python()
-    if not paths.venv_dir.exists():
-        _run_command([python_executable, "-m", "venv", str(paths.venv_dir)])
-    venv_python = _venv_python(paths)
-    _run_command([str(venv_python), "-m", "pip", "install", "--upgrade", "pip"])
-    _run_command([str(venv_python), "-m", "pip", "install", "-e", ".[audio,dev]"])
-    paths.setup_marker.parent.mkdir(parents=True, exist_ok=True)
-    paths.setup_marker.write_text("ready\n", encoding="utf-8")
+    subprocess.run([str(paths.workspace / "scripts" / "amy"), "setup"], cwd=paths.workspace, check=True)
 
 
 def _ensure_environment(paths: ServicePaths) -> None:
@@ -267,40 +260,3 @@ def _venv_python(paths: ServicePaths) -> Path:
     if os.name == "nt":
         return paths.venv_dir / "Scripts" / "python.exe"
     return paths.venv_dir / "bin" / "python"
-
-
-def _bootstrap_python() -> str:
-    if sys.version_info >= (3, 10):
-        return sys.executable
-
-    for candidate in ("python3.11", "python3.10", "python3"):
-        if _python_supports_required_version(candidate):
-            return candidate
-
-    raise RuntimeError("Python 3.10 or newer is required to set up Amy.")
-
-
-def _python_supports_required_version(candidate: str) -> bool:
-    try:
-        completed = subprocess.run(
-            [candidate, "-c", "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}')"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        return False
-
-    version_text = completed.stdout.strip()
-    try:
-        major_text, minor_text = version_text.split(".", maxsplit=1)
-        major = int(major_text)
-        minor = int(minor_text)
-    except ValueError:
-        return False
-
-    return (major, minor) >= (3, 10)
-
-
-def _run_command(command: list[str]) -> None:
-    subprocess.run(command, check=True)

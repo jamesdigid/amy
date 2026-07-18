@@ -4,6 +4,7 @@ Local Python voice assistant that wakes on `amy`, transcribes speech locally, ca
 
 ## Requirements
 - macOS
+- brew
 - Python 3.10 or newer
 - An OpenAI API key in `OPENAI_API_KEY`
 

@@ -534,6 +534,16 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertEqual(web_search.queries, [("what is the weather today", 4)])
         self.assertEqual(memory_classifier.calls, [])
 
+    def test_general_question_does_not_force_web_search(self) -> None:
+        web_search = FakeWebSearch()
+        controller, responder, _speaker, web_search = build_controller(web_search=web_search)
+
+        controller.process_transcript("amy what is a dataclass")
+
+        assert web_search is not None
+        self.assertEqual(web_search.queries, [])
+        self.assertEqual(responder.calls[0][0].role, "system")
+
     def test_prompt_injects_relevant_memory_context(self) -> None:
         memory_store = FakeMemoryStore()
         controller, responder, _speaker, _ = build_controller(memory_store=memory_store)
