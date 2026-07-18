@@ -15,6 +15,7 @@ class AppConfig:
     recent_turns: int
     wake_word: str
     transcript_language: str | None = None
+    transcription_model: str = "mlx-community/whisper-large-v3-turbo"
     log_transcripts: bool = False
 
     @property
@@ -53,6 +54,11 @@ def load_config(base_dir: Path | None = None) -> AppConfig:
         "AMY_TRANSCRIPT_LANGUAGE", "AIMEE_TRANSCRIPT_LANGUAGE", ""
     )
     transcript_language = transcript_language_raw.strip() or None
+    transcription_model = _get_env_with_fallback(
+        "AMY_TRANSCRIPTION_MODEL",
+        "AIMEE_TRANSCRIPTION_MODEL",
+        "mlx-community/whisper-large-v3-turbo",
+    )
     log_transcripts_raw = _get_env_with_fallback(
         "AMY_LOG_TRANSCRIPTS", "AIMEE_LOG_TRANSCRIPTS", "false"
     )
@@ -67,6 +73,7 @@ def load_config(base_dir: Path | None = None) -> AppConfig:
         recent_turns=recent_turns,
         wake_word=wake_word,
         transcript_language=transcript_language,
+        transcription_model=transcription_model,
         log_transcripts=log_transcripts,
     )
 

@@ -12,7 +12,7 @@ from .config import AppConfig, load_config
 from .controller import AssistantController
 from .context.prompts import PromptBuilder
 from .memory import MemoryStore, OpenAIMemoryClassifier
-from .modalities.audio import AudioConfig, FasterWhisperTranscriber, LocalSpeaker
+from .modalities.audio import AudioConfig, LocalSpeaker, MlxWhisperTranscriber
 from .runtime.assistant import AssistantRuntime
 from .runtime.status import AmyStatusReporter
 from .skills.registry import AmySkillRegistry
@@ -78,7 +78,10 @@ class AmyAgent:
         )
         runtime = AssistantRuntime(
             controller=controller,
-            transcriber=FasterWhisperTranscriber(language=config.transcript_language),
+            transcriber=MlxWhisperTranscriber(
+                model_repo=config.transcription_model,
+                language=config.transcript_language,
+            ),
             audio_config=AudioConfig(),
             log_transcripts=config.log_transcripts,
             status_reporter=status_reporter,

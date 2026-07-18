@@ -30,8 +30,25 @@ bootstrap() {
     "$PYTHON_BIN" -m venv "$VENV_DIR"
   fi
 
+  if ! command -v ffmpeg >/dev/null 2>&1; then
+    if command -v brew >/dev/null 2>&1; then
+      echo "ffmpeg not found; installing via Homebrew."
+      brew install ffmpeg
+    else
+      echo "ffmpeg is required for audio transcription, but Homebrew is not available." >&2
+      exit 1
+    fi
+  fi
+
   "$VENV_DIR/bin/python" -m pip install --upgrade pip
   "$VENV_DIR/bin/python" -m pip install -e ".[audio,dev]"
+  AMY_TRANSCRIPTION_MODEL="${AMY_TRANSCRIPTION_MODEL:-mlx-community/whisper-large-v3-turbo}" \
+    "$VENV_DIR/bin/python" - <<'PY' || echo "amy: model prefetch skipped (will download on first run)"
+from agents.amy.modalities.audio import MlxWhisperTranscriber
+import os
+
+MlxWhisperTranscriber(model_repo=os.environ["AMY_TRANSCRIPTION_MODEL"]).warmup()
+PY
 }
 
 ensure_installed() {

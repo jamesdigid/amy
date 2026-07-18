@@ -14,7 +14,8 @@ The repo now supports a single bootstrap script:
 ./scripts/amy setup
 ```
 
-That creates the local virtual environment and installs the assistant with audio and developer dependencies.
+That creates the local virtual environment, installs the assistant with audio and developer dependencies, and prefetches the default transcription model so the first live run is faster.
+If `ffmpeg` is missing on macOS, the setup step will install it through Homebrew automatically.
 
 Before you run Amy, create a local `.env` file from the example:
 
@@ -70,6 +71,7 @@ Optional environment variables:
 - `AMY_RECENT_TURNS`
 - `AMY_WAKE_WORD`
 - `AMY_TRANSCRIPT_LANGUAGE`
+- `AMY_TRANSCRIPTION_MODEL`
 - `AMY_LOG_TRANSCRIPTS`
 
 You can also edit `config/project_context.md` to shape Amy's tone and behavior for your project.
@@ -83,11 +85,14 @@ You can also edit `config/project_context.md` to shape Amy's tone and behavior f
 - Ask current or lookup-style questions and Amy will add basic web search context automatically.
 - Amy can also retrieve matching markdown memories from `src/agents/amy/memory` when your prompt terms match the dot-delimited file tags.
 - Say things like `remember that...`, `remember this...`, or `don't forget...` to make Amy consider saving a future memory.
-- Local speech-to-text and local text-to-speech keep OpenAI usage text-only and cost-effective.
+- Local speech-to-text uses MLX Whisper on Apple Silicon and caches the transcription model under `~/.cache/huggingface`.
+- The default transcription model is `mlx-community/whisper-large-v3-turbo`, which is downloaded during setup if possible.
+- Local text-to-speech keeps OpenAI usage text-only and cost-effective.
 - Set `AMY_LOG_TRANSCRIPTS=1` if you want Amy to log the raw transcripts she hears.
 
 ## Notes
 - Background start/stop state is stored under `.amy/`.
 - `.env` is loaded automatically by `./scripts/amy` when it exists.
+- If the model prefetch fails during setup, Amy will still work and download the transcription model on first run.
 - If `python3` is not available, install Python 3.10+ first and rerun `./scripts/amy setup`.
 - For microphone access during a call, use `pause` so Amy releases the channel immediately.

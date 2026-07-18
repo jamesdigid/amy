@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from array import array
+import importlib
 from dataclasses import dataclass, field
 from pathlib import Path
 import contextlib
 from collections import deque
 import math
 import sys
-from typing import Deque, Iterable, Iterator, Protocol, cast
+from typing import Deque, Iterator, Protocol, TypedDict, cast
 import logging
 import platform
 import subprocess
@@ -171,58 +172,81 @@ class Transcriber(Protocol):
     def transcribe(self, audio_path: Path) -> str: ...
 
 
-class _WhisperSegment(Protocol):
-    @property
-    def text(self) -> str: ...
+class _MlxWhisperTranscribeResult(TypedDict):
+    text: str
 
 
-class _WhisperModel(Protocol):
+class _MlxWhisperModule(Protocol):
     def transcribe(
         self,
-        audio: str,
+        audio: object,
         *,
-        language: str | None,
-        beam_size: int,
-        vad_filter: bool,
-    ) -> tuple[Iterable[_WhisperSegment], object]: ...
+        path_or_hf_repo: str,
+        language: str | None = None,
+        verbose: bool | None = None,
+        temperature: float = 0.0,
+        condition_on_previous_text: bool = False,
+        word_timestamps: bool = False,
+    ) -> _MlxWhisperTranscribeResult: ...
 
 
 @dataclass
-class FasterWhisperTranscriber:
-    model_name: str = "base"
+class MlxWhisperTranscriber:
+    model_repo: str = "mlx-community/whisper-large-v3-turbo"
     language: str | None = None
     _model_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        self._model: _WhisperModel | None = None
+        self._module: _MlxWhisperModule | None = None
+        self._warmed = False
 
-    def _load_model(self) -> _WhisperModel:
-        if self._model is not None:
-            return self._model
+    def _load_module(self) -> _MlxWhisperModule:
+        if self._module is not None:
+            return self._module
 
         with self._model_lock:
-            if self._model is None:
-                from faster_whisper import WhisperModel
+            if self._module is None:
+                self._module = cast(_MlxWhisperModule, importlib.import_module("mlx_whisper"))
+        return self._module
 
-                self._model = cast(
-                    _WhisperModel,
-                    WhisperModel(self.model_name, device="cpu", compute_type="int8"),
-                )
-        return self._model
+    def _transcribe_audio(self, audio: object) -> _MlxWhisperTranscribeResult:
+        module = self._load_module()
+        return module.transcribe(
+            audio,
+            path_or_hf_repo=self.model_repo,
+            language=self.language,
+            verbose=False,
+            temperature=0.0,
+            condition_on_previous_text=False,
+            word_timestamps=False,
+        )
 
     def warmup(self) -> None:
-        self._load_model()
+        if self._warmed:
+            return
+
+        module = self._load_module()
+        with self._model_lock:
+            if self._warmed:
+                return
+
+            import numpy as np
+
+            silence = np.zeros(16000, dtype=np.float32)
+            module.transcribe(
+                silence,
+                path_or_hf_repo=self.model_repo,
+                language=self.language,
+                verbose=False,
+                temperature=0.0,
+                condition_on_previous_text=False,
+                word_timestamps=False,
+            )
+            self._warmed = True
 
     def transcribe(self, audio_path: Path) -> str:
-        model = self._load_model()
-        segments, _info = model.transcribe(
-            str(audio_path),
-            language=self.language,
-            beam_size=1,
-            vad_filter=True,
-        )
-        text = " ".join(segment.text.strip() for segment in segments).strip()
-        return text
+        result = self._transcribe_audio(str(audio_path))
+        return result["text"].strip()
 
 
 @dataclass
@@ -283,9 +307,9 @@ class LocalSpeaker:
 __all__ = [
     "AudioConfig",
     "AudioSegment",
-    "FasterWhisperTranscriber",
     "LocalSpeaker",
     "MicrophoneSource",
+    "MlxWhisperTranscriber",
     "SpeechSegmenter",
     "StubTranscriber",
     "Transcriber",

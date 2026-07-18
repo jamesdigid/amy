@@ -6,7 +6,7 @@ import unittest
 from unittest import mock
 from pathlib import Path
 
-from agents.amy.modalities.audio import AudioConfig, FasterWhisperTranscriber, SpeechSegmenter
+from agents.amy.modalities.audio import AudioConfig, MlxWhisperTranscriber, SpeechSegmenter
 
 
 def _silent_frame(samples: int) -> bytes:
@@ -37,30 +37,45 @@ class SpeechSegmenterTests(unittest.TestCase):
         self.assertTrue(segment.path.exists())
 
 
-class FasterWhisperTranscriberTests(unittest.TestCase):
+class MlxWhisperTranscriberTests(unittest.TestCase):
     def test_warmup_loads_model_once(self) -> None:
-        calls: list[tuple[object, ...]] = []
+        calls: list[tuple[object, dict[str, object]]] = []
 
-        class FakeModel:
-            def __init__(self, model_name: str, device: str, compute_type: str) -> None:
-                calls.append((model_name, device, compute_type))
+        def fake_transcribe(audio: object, **kwargs: object) -> dict[str, str]:
+            calls.append((audio, dict(kwargs)))
+            return {"text": " hello "}
 
-            def transcribe(
-                self,
-                audio: str,
-                *,
-                language: str | None,
-                beam_size: int,
-                vad_filter: bool,
-            ) -> tuple[list[object], object]:
-                return ([], object())
-
-        fake_module = types.SimpleNamespace(WhisperModel=FakeModel)
-        with mock.patch.dict(sys.modules, {"faster_whisper": fake_module}):
-            transcriber = FasterWhisperTranscriber(model_name="tiny", language="en")
+        fake_module = types.SimpleNamespace(transcribe=fake_transcribe)
+        with mock.patch.dict(sys.modules, {"mlx_whisper": fake_module}):
+            transcriber = MlxWhisperTranscriber(
+                model_repo="mlx-community/whisper-large-v3-turbo",
+                language="en",
+            )
             transcriber.warmup()
             transcriber.warmup()
 
-            self.assertEqual(calls, [("tiny", "cpu", "int8")])
-            self.assertEqual(transcriber.transcribe(Path("/tmp/example.wav")), "")
-            self.assertEqual(calls, [("tiny", "cpu", "int8")])
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(
+                calls[0][1],
+                {
+                    "path_or_hf_repo": "mlx-community/whisper-large-v3-turbo",
+                    "language": "en",
+                    "verbose": False,
+                    "temperature": 0.0,
+                    "condition_on_previous_text": False,
+                    "word_timestamps": False,
+                },
+            )
+            self.assertEqual(transcriber.transcribe(Path("/tmp/example.wav")), "hello")
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(
+                calls[1][1],
+                {
+                    "path_or_hf_repo": "mlx-community/whisper-large-v3-turbo",
+                    "language": "en",
+                    "verbose": False,
+                    "temperature": 0.0,
+                    "condition_on_previous_text": False,
+                    "word_timestamps": False,
+                },
+            )

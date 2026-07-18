@@ -23,6 +23,7 @@ class ConfigTests(unittest.TestCase):
                     "AIMEE_CONTEXT_PATH": str(context_path),
                     "AIMEE_MODEL": "gpt-test",
                     "AMY_ASSISTANT_NAME": "Amy",
+                    "AMY_TRANSCRIPTION_MODEL": "mlx-community/whisper-small",
                     "AMY_LOG_TRANSCRIPTS": "1",
                 },
                 clear=False,
@@ -30,6 +31,7 @@ class ConfigTests(unittest.TestCase):
                 config = load_config(base_path)
                 self.assertEqual(config.api_key, "test-key")
                 self.assertEqual(config.model, "gpt-test")
+                self.assertEqual(config.transcription_model, "mlx-community/whisper-small")
                 self.assertEqual(config.project_context, "Use short answers.")
                 self.assertEqual(config.memory_dir, base_path / "src" / "agents" / "amy" / "memory")
                 self.assertTrue(config.log_transcripts)
@@ -48,6 +50,19 @@ class ConfigTests(unittest.TestCase):
             ):
                 config = load_config(base_path)
                 self.assertEqual(config.memory_dir, memory_dir)
+
+    def test_load_config_uses_default_transcription_model(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base_path = Path(temp_dir)
+            with patch.dict(
+                os.environ,
+                {
+                    "OPENAI_API_KEY": "test-key",
+                },
+                clear=False,
+            ):
+                config = load_config(base_path)
+                self.assertEqual(config.transcription_model, "mlx-community/whisper-large-v3-turbo")
 
     def test_load_config_requires_api_key(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
