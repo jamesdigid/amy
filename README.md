@@ -48,6 +48,19 @@ After setup, you can also use the installed console script inside the venv:
 amy run
 ```
 
+## Test Suite
+Run the full test suite with:
+
+```bash
+uv run pytest
+```
+
+If you have already run `./scripts/amy setup`, you can also run tests from the local virtual environment:
+
+```bash
+./.venv/bin/pytest
+```
+
 ## Configuration
 Optional environment variables:
 - `AMY_MODEL`
