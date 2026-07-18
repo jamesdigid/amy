@@ -7,12 +7,13 @@ from typing import Callable
 
 from .context.pipeline import ResponsePipeline
 from .context.prompts import PromptBuilder
-from .memory import MemoryDecision, MemoryDraft
+from .conversation.session import ConversationSession
+from .conversation.side_effects import ConversationSideEffects
+from .memory import MemoryDecision
 from .models import AssistantStatus, ConversationTurn
 from .protocols import MemoryClassifierProtocol, MemoryStoreProtocol, Responder, Speaker, WebSearchProtocol
 from .runtime.status import AmyStatusReporter
 from .understanding.interpreter import TranscriptInterpreter
-from .conversation.session import ConversationSession
 
 
 @dataclass
@@ -21,7 +22,7 @@ class AssistantController:
     responder: Responder
     speaker: Speaker
     wake_word: str
-    status_reporter: AmyStatusReporter | None = None
+    status_reporter: object | None = None
     memory_store: MemoryStoreProtocol | None = None
     memory_classifier: MemoryClassifierProtocol | None = None
     web_search: WebSearchProtocol | None = None
@@ -35,6 +36,7 @@ class AssistantController:
     _session: ConversationSession = field(init=False, repr=False)
     _interpreter: TranscriptInterpreter = field(init=False, repr=False)
     _pipeline: ResponsePipeline = field(init=False, repr=False)
+    _effects: ConversationSideEffects = field(init=False, repr=False)
     _logger: logging.Logger = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -48,6 +50,12 @@ class AssistantController:
             web_search_limit=self.web_search_limit,
             usage_logger=self.usage_logger,
             acknowledgment_callback=self.acknowledgment_callback,
+        )
+        self._effects = ConversationSideEffects(
+            speaker=self.speaker,
+            memory_store=self.memory_store,
+            status_reporter=self.status_reporter,
+            acknowledgment_stop_callback=self.acknowledgment_stop_callback,
         )
 
     @property
@@ -106,7 +114,15 @@ class AssistantController:
             return None
         if self._interpreter.is_status_command(normalized):
             self._logger.debug("status command matched")
-            return self._handle_status_check(transcript)
+            return self._effects.handle_status_check(
+                transcript,
+                interpreter=self._interpreter,
+                session=self._session,
+                idle_timeout_seconds=self.idle_timeout_seconds,
+                follow_up_timeout_seconds=self.follow_up_timeout_seconds,
+                speech_cooldown_seconds=self.speech_cooldown_seconds,
+                logger=self._logger,
+            )
 
         if self._session.should_drop_main_transcript():
             self._logger.debug("dropping transcript because assistant is in speech cooldown")
@@ -123,7 +139,7 @@ class AssistantController:
             if not prompt:
                 self._logger.debug("wake word alone; acknowledging only")
                 self._session.acknowledge_wake_word()
-                self._stop_acknowledgement_loop()
+                self._effects.stop_acknowledgement_loop()
                 self.speaker.speak("Amy here")
                 self._session.begin_post_speech(
                     expects_follow_up=True,
@@ -176,7 +192,15 @@ class AssistantController:
                 subject=memory_decision.subject if memory_decision and memory_decision.subject else None,
             )
             if draft is not None:
-                return self._save_memory_draft(draft, prompt)
+                return self._effects.save_memory_draft(
+                    draft,
+                    prompt,
+                    session=self._session,
+                    idle_timeout_seconds=self.idle_timeout_seconds,
+                    follow_up_timeout_seconds=self.follow_up_timeout_seconds,
+                    speech_cooldown_seconds=self.speech_cooldown_seconds,
+                    logger=self._logger,
+                )
 
         web_context, memory_context = self._pipeline.collect_context(prompt, self._interpreter)
         self._session.record_user_turn(prompt)
@@ -194,7 +218,14 @@ class AssistantController:
             reply = self.responder.generate_reply(messages, self._session.cancel_event)
         except Exception as exc:  # pragma: no cover - runtime path
             self._logger.exception("responder failed")
-            return self._handle_responder_failure(str(exc))
+            return self._effects.handle_responder_failure(
+                str(exc),
+                session=self._session,
+                idle_timeout_seconds=self.idle_timeout_seconds,
+                follow_up_timeout_seconds=self.follow_up_timeout_seconds,
+                speech_cooldown_seconds=self.speech_cooldown_seconds,
+                logger=self._logger,
+            )
         reply_elapsed = time.perf_counter() - reply_started
         self._logger.debug("responder completed in %.3fs", reply_elapsed)
 
@@ -204,11 +235,16 @@ class AssistantController:
 
         reply = self._interpreter.limit_follow_up_questions(reply)
         expects_follow_up = self._interpreter.reply_expects_follow_up(reply) or self._interpreter.reply_ends_session_immediately(reply)
-        speak_elapsed = self._deliver_reply(
+        speak_elapsed = self._effects.deliver_reply(
             reply,
             expects_follow_up=expects_follow_up,
             record_turn=True,
             mark_speaking=True,
+            session=self._session,
+            idle_timeout_seconds=self.idle_timeout_seconds,
+            follow_up_timeout_seconds=self.follow_up_timeout_seconds,
+            speech_cooldown_seconds=self.speech_cooldown_seconds,
+            logger=self._logger,
         )
         total_elapsed = time.perf_counter() - process_started
         self._logger.debug(
@@ -228,88 +264,5 @@ class AssistantController:
 
     def should_drop_main_transcript(self) -> bool:
         return self._session.should_drop_main_transcript()
-
-    def _deliver_reply(
-        self,
-        reply: str,
-        *,
-        expects_follow_up: bool,
-        record_turn: bool,
-        mark_speaking: bool,
-    ) -> float:
-        self._session.record_assistant_reply(
-            reply,
-            append_turn=record_turn,
-            mark_speaking=mark_speaking,
-        )
-        self._logger.debug("speaking reply: %r", reply)
-        self._stop_acknowledgement_loop()
-        speak_started = time.perf_counter()
-        self.speaker.speak(reply)
-        speak_elapsed = time.perf_counter() - speak_started
-        if not self._session.cancel_event.is_set():
-            self._logger.debug("reply complete; waiting for follow-up")
-            self._session.begin_post_speech(
-                expects_follow_up=expects_follow_up,
-                speech_cooldown_seconds=self.speech_cooldown_seconds,
-                idle_timeout_seconds=self.idle_timeout_seconds,
-                follow_up_timeout_seconds=self.follow_up_timeout_seconds,
-            )
-        return speak_elapsed
-
-    def _save_memory_draft(self, draft: MemoryDraft, prompt: str) -> str:
-        if self.memory_store is None:
-            self._logger.debug("memory save skipped because no memory store is configured")
-            return ""
-
-        saved_path = self.memory_store.save_draft(draft)
-        self._logger.debug("saved memory draft: %s", saved_path.name)
-        reply = "Got it."
-        self._session.set_last_user_text(prompt)
-        self._deliver_reply(
-            reply,
-            expects_follow_up=False,
-            record_turn=False,
-            mark_speaking=False,
-        )
-        return reply
-
-    def _handle_responder_failure(self, error_message: str) -> str:
-        reply = "Sorry, I had trouble reaching the server."
-        self._session.set_error_message(error_message)
-        self._deliver_reply(
-            reply,
-            expects_follow_up=False,
-            record_turn=True,
-            mark_speaking=True,
-        )
-        return reply
-
-    def _handle_status_check(self, transcript: str) -> str:
-        reply = self._build_status_report()
-        self._session.set_last_user_text(self._interpreter.strip_wake_word(transcript.strip()))
-        self._deliver_reply(
-            reply,
-            expects_follow_up=False,
-            record_turn=True,
-            mark_speaking=True,
-        )
-        return reply
-
-    def _build_status_report(self) -> str:
-        if self.status_reporter is None:
-            status = self.status
-            error_text = status.error_message.strip() or "no errors"
-            return (
-                f"Status check: {status.phase.value}, "
-                f"{'paused' if status.paused else 'not paused'}, "
-                f"{'active conversation' if status.active_conversation else 'no active conversation'}, "
-                f"{error_text}."
-            )
-        return self.status_reporter.build_report(self.status)
-
-    def _stop_acknowledgement_loop(self) -> None:
-        if self.acknowledgment_stop_callback is not None:
-            self.acknowledgment_stop_callback()
 
 __all__ = ["AssistantController", "Responder", "Speaker"]
