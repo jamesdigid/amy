@@ -77,6 +77,7 @@ Optional environment variables:
 - `AMY_TRANSCRIPT_LANGUAGE`
 - `AMY_TRANSCRIPTION_MODEL`
 - `AMY_LOG_TRANSCRIPTS`
+- `AMY_AUDIO_INPUT_DEVICE`
 
 You can also edit `config/project_context.md` to shape Amy's tone and behavior for your project.
 
@@ -93,6 +94,7 @@ You can also edit `config/project_context.md` to shape Amy's tone and behavior f
 - The default transcription model is `mlx-community/whisper-large-v3-turbo`, which is downloaded during setup if possible.
 - Local text-to-speech keeps OpenAI usage text-only and cost-effective.
 - Set `AMY_LOG_TRANSCRIPTS=1` if you want Amy to log the raw transcripts she hears.
+- Set `AMY_AUDIO_INPUT_DEVICE` to the exact device name or PortAudio index if you want Amy to capture from a specific audio interface instead of the system default input.
 
 ## Notes
 - Background start/stop state is stored under `.amy/`.

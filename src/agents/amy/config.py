@@ -17,6 +17,7 @@ class AppConfig:
     transcript_language: str | None = None
     transcription_model: str = "mlx-community/whisper-large-v3-turbo"
     log_transcripts: bool = False
+    audio_input_device: str | int | None = None
 
     @property
     def project_context(self) -> str:
@@ -63,6 +64,12 @@ def load_config(base_dir: Path | None = None) -> AppConfig:
         "AMY_LOG_TRANSCRIPTS", "AIMEE_LOG_TRANSCRIPTS", "false"
     )
     log_transcripts = _parse_bool(log_transcripts_raw)
+    audio_input_device_raw = _get_env_with_fallback(
+        "AMY_AUDIO_INPUT_DEVICE",
+        "AIMEE_AUDIO_INPUT_DEVICE",
+        "",
+    )
+    audio_input_device = _parse_optional_device(audio_input_device_raw)
 
     return AppConfig(
         api_key=api_key,
@@ -75,6 +82,7 @@ def load_config(base_dir: Path | None = None) -> AppConfig:
         transcript_language=transcript_language,
         transcription_model=transcription_model,
         log_transcripts=log_transcripts,
+        audio_input_device=audio_input_device,
     )
 
 
@@ -92,5 +100,15 @@ def _get_env_with_fallback(primary: str, legacy: str, default: str) -> str:
 
 def _parse_bool(value: str) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_optional_device(value: str) -> str | int | None:
+    device = value.strip()
+    if not device:
+        return None
+    try:
+        return int(device)
+    except ValueError:
+        return device
 
 __all__ = ["AppConfig", "load_config"]

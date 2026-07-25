@@ -43,6 +43,7 @@ class AudioConfig:
     pre_roll_ms: int = 300
     silence_ms: int = 700
     rms_threshold: int = 500
+    input_device: str | int | None = None
 
     @property
     def frame_samples(self) -> int:
@@ -144,6 +145,7 @@ class MicrophoneSource:
         stream = cast(
             _InputStream,
             sd.RawInputStream(
+                device=self._config.input_device,
                 channels=1,
                 samplerate=self._config.sample_rate,
                 dtype="int16",

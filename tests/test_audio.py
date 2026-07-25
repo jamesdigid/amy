@@ -96,3 +96,37 @@ class LocalSpeakerTests(unittest.TestCase):
         process.terminate.assert_called_once()
         process.kill.assert_called_once()
         self.assertFalse(speaker.is_speaking.is_set())
+
+
+class MicrophoneSourceTests(unittest.TestCase):
+    def test_microphone_source_passes_selected_device_to_sounddevice(self) -> None:
+        captured: dict[str, object] = {}
+
+        class FakeStream:
+            def start(self) -> None:
+                return None
+
+            def stop(self) -> None:
+                return None
+
+            def close(self) -> None:
+                return None
+
+            def read(self, frames: int) -> tuple[bytes, bool]:
+                return (b"\x00\x00" * frames, False)
+
+        def fake_raw_input_stream(**kwargs: object) -> FakeStream:
+            captured.update(kwargs)
+            return FakeStream()
+
+        fake_sounddevice = types.SimpleNamespace(RawInputStream=fake_raw_input_stream)
+        with mock.patch.dict(sys.modules, {"sounddevice": fake_sounddevice}):
+            from agents.amy.modalities.audio import MicrophoneSource
+
+            source = MicrophoneSource(AudioConfig(input_device="Audient iD24"))
+            with source:
+                pass
+
+        self.assertEqual(captured["device"], "Audient iD24")
+        self.assertEqual(captured["channels"], 1)
+        self.assertEqual(captured["dtype"], "int16")

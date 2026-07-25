@@ -82,7 +82,7 @@ class AmyAgent:
                 model_repo=config.transcription_model,
                 language=config.transcript_language,
             ),
-            audio_config=AudioConfig(),
+            audio_config=AudioConfig(input_device=config.audio_input_device),
             log_transcripts=config.log_transcripts,
             status_reporter=status_reporter,
             on_status=lambda message: print(f"[amy] {message}"),

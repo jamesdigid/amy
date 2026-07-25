@@ -25,6 +25,7 @@ class ConfigTests(unittest.TestCase):
                     "AMY_ASSISTANT_NAME": "Amy",
                     "AMY_TRANSCRIPTION_MODEL": "mlx-community/whisper-small",
                     "AMY_LOG_TRANSCRIPTS": "1",
+                    "AMY_AUDIO_INPUT_DEVICE": "Audient iD24",
                 },
                 clear=False,
             ):
@@ -35,6 +36,7 @@ class ConfigTests(unittest.TestCase):
                 self.assertEqual(config.project_context, "Use short answers.")
                 self.assertEqual(config.memory_dir, base_path / "src" / "agents" / "amy" / "memory")
                 self.assertTrue(config.log_transcripts)
+                self.assertEqual(config.audio_input_device, "Audient iD24")
 
     def test_load_config_reads_memory_dir_override(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -45,11 +47,13 @@ class ConfigTests(unittest.TestCase):
                 {
                     "OPENAI_API_KEY": "test-key",
                     "AMY_MEMORY_DIR": str(memory_dir),
+                    "AMY_AUDIO_INPUT_DEVICE": "3",
                 },
                 clear=False,
             ):
                 config = load_config(base_path)
                 self.assertEqual(config.memory_dir, memory_dir)
+                self.assertEqual(config.audio_input_device, 3)
 
     def test_load_config_uses_defaults_for_empty_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
