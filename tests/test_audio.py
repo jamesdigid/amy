@@ -7,7 +7,14 @@ import unittest
 from unittest import mock
 from pathlib import Path
 
-from agents.amy.modalities.audio import AudioConfig, LocalSpeaker, MlxWhisperTranscriber, SpeechSegmenter
+from agents.amy.modalities.audio import (
+    AudioConfig,
+    AudioFrame,
+    LocalSpeaker,
+    MicrophoneSource,
+    MlxWhisperTranscriber,
+    SpeechSegmenter,
+)
 
 
 def _silent_frame(samples: int) -> bytes:
@@ -33,9 +40,28 @@ class SpeechSegmenterTests(unittest.TestCase):
 
         self.assertIsNotNone(segment)
         assert segment is not None
-        self.assertEqual(segment.path.suffix, ".wav")
+        self.assertIsInstance(segment.pcm, bytes)
+        self.assertGreater(len(segment.pcm), 0)
         self.assertGreater(segment.duration_seconds, 0)
-        self.assertTrue(segment.path.exists())
+
+    def test_emits_segment_after_max_utterance_duration(self) -> None:
+        config = AudioConfig(
+            frame_ms=30,
+            pre_roll_ms=30,
+            silence_ms=9_999,
+            max_utterance_ms=60,
+            rms_threshold=100,
+        )
+        segmenter = SpeechSegmenter(config)
+
+        self.assertIsNone(segmenter.feed(_silent_frame(config.frame_samples)))
+        self.assertIsNone(segmenter.feed(_loud_frame(config.frame_samples)))
+        segment = segmenter.feed(_loud_frame(config.frame_samples))
+
+        self.assertIsNotNone(segment)
+        assert segment is not None
+        self.assertGreater(len(segment.pcm), 0)
+        self.assertGreater(segment.duration_seconds, 0)
 
 
 class MlxWhisperTranscriberTests(unittest.TestCase):
@@ -113,7 +139,7 @@ class MicrophoneSourceTests(unittest.TestCase):
                 return None
 
             def read(self, frames: int) -> tuple[bytes, bool]:
-                return (b"\x00\x00" * frames, False)
+                return (b"\x00\x00" * frames, True)
 
         def fake_raw_input_stream(**kwargs: object) -> FakeStream:
             captured.update(kwargs)
@@ -121,12 +147,14 @@ class MicrophoneSourceTests(unittest.TestCase):
 
         fake_sounddevice = types.SimpleNamespace(RawInputStream=fake_raw_input_stream)
         with mock.patch.dict(sys.modules, {"sounddevice": fake_sounddevice}):
-            from agents.amy.modalities.audio import MicrophoneSource
-
             source = MicrophoneSource(AudioConfig(input_device="Audient iD24"))
             with source:
-                pass
+                frame = next(source.frames())
 
         self.assertEqual(captured["device"], "Audient iD24")
         self.assertEqual(captured["channels"], 1)
         self.assertEqual(captured["dtype"], "int16")
+        self.assertIsInstance(frame, AudioFrame)
+        expected_frame = b"\x00\x00" * AudioConfig(input_device="Audient iD24").frame_samples
+        self.assertEqual(frame.data, expected_frame)
+        self.assertTrue(frame.overflow)

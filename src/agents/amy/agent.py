@@ -136,9 +136,6 @@ class AmyAgent:
 def _configure_logging() -> None:
     main_log_level_name = os.environ.get("AMY_MAIN_LOG_LEVEL", "DEBUG").upper()
     main_log_level = getattr(logging, main_log_level_name, logging.DEBUG)
-    command_log_level_name = os.environ.get("AMY_COMMAND_LOG_LEVEL", "WARNING").upper()
-    command_log_level = getattr(logging, command_log_level_name, logging.WARNING)
     logging.basicConfig(level=main_log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logging.getLogger("agents.amy.controller").setLevel(main_log_level)
     logging.getLogger("agents.amy.runtime").setLevel(main_log_level)
-    logging.getLogger("amy.command_listener").setLevel(command_log_level)

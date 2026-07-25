@@ -6,9 +6,10 @@ import re
 
 from ..models import Message
 
-PAUSE_COMMANDS = frozenset({"amy pause", "pause conversation", "stop listening", "pause"})
-RESUME_COMMANDS = frozenset({"amy resume", "resume conversation", "resume"})
-CUT_COMMANDS = frozenset({"amy cut", "cut channel", "cut", "stop"})
+
+def _normalize_signal(text: str) -> str:
+    return re.sub(r"[^a-z0-9\s]", "", text.lower()).strip()
+
 STATUS_PHRASES = (
     "status check",
     "check your status",
@@ -54,7 +55,11 @@ WRAP_UP_SIGNALS = (
     "let me know if you need anything else",
     "let me know if i can help with anything else",
     "is there anything else",
+    "you're welcome",
+    "you are welcome",
+    "ready when you are",
 )
+WRAP_UP_SIGNAL_MATCHES = frozenset(_normalize_signal(signal) for signal in WRAP_UP_SIGNALS)
 MEMORY_REQUEST_SIGNALS = (
     "remember this",
     "remember that",
@@ -95,7 +100,6 @@ QUESTION_STARTERS = (
     "does ",
     "did ",
 )
-SHORT_INTERRUPT_WORDS = ("pause", "resume", "cut", "stop")
 
 
 @dataclass(frozen=True)
@@ -124,24 +128,9 @@ class TranscriptInterpreter:
     def normalize_echo_text(self, text: str) -> str:
         return re.sub(r"[^a-z0-9\s]", "", text.lower()).strip()
 
-    def is_pause_command(self, text: str) -> bool:
-        return self.normalize_text(text) in PAUSE_COMMANDS
-
-    def is_resume_command(self, text: str) -> bool:
-        return self.normalize_text(text) in RESUME_COMMANDS
-
-    def is_cut_command(self, text: str) -> bool:
-        return self.normalize_text(text) in CUT_COMMANDS
-
     def is_status_command(self, text: str) -> bool:
         normalized = self.normalize_text(text)
         return any(phrase in normalized for phrase in STATUS_PHRASES)
-
-    def looks_like_short_interrupt(self, normalized: str) -> bool:
-        words = normalized.split()
-        if not words or len(words) > 4:
-            return False
-        return any(re.search(rf"\b{word}\b", normalized) for word in SHORT_INTERRUPT_WORDS)
 
     def is_acknowledgement_echo(
         self,
@@ -196,7 +185,7 @@ class TranscriptInterpreter:
 
     def reply_ends_session_immediately(self, reply: str) -> bool:
         normalized = self.normalize_echo_text(reply)
-        return any(signal in normalized for signal in WRAP_UP_SIGNALS)
+        return any(signal in normalized for signal in WRAP_UP_SIGNAL_MATCHES)
 
     def limit_follow_up_questions(self, reply: str) -> str:
         first_question_mark = reply.find("?")

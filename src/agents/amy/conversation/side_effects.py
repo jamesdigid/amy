@@ -25,6 +25,7 @@ class ConversationSideEffects:
         reply: str,
         *,
         expects_follow_up: bool,
+        ends_session_immediately: bool,
         record_turn: bool,
         mark_speaking: bool,
         session: ConversationSession,
@@ -32,7 +33,11 @@ class ConversationSideEffects:
         follow_up_timeout_seconds: float,
         speech_cooldown_seconds: float,
         logger: logging.Logger,
+        request_id: int | None = None,
     ) -> float:
+        if request_id is not None and not session.claim_delivery(request_id):
+            logger.debug("skipping reply delivery because generation is stale")
+            return 0.0
         session.record_assistant_reply(
             reply,
             append_turn=record_turn,
@@ -43,6 +48,10 @@ class ConversationSideEffects:
         speak_started = time.perf_counter()
         self.speaker.speak(reply)
         speak_elapsed = time.perf_counter() - speak_started
+        if ends_session_immediately:
+            logger.debug("reply requested immediate session end")
+            session.stop()
+            return speak_elapsed
         if not session.cancel_event.is_set():
             logger.debug("reply complete; waiting for follow-up")
             session.begin_post_speech(
@@ -63,6 +72,7 @@ class ConversationSideEffects:
         follow_up_timeout_seconds: float,
         speech_cooldown_seconds: float,
         logger: logging.Logger,
+        request_id: int | None = None,
     ) -> str:
         if self.memory_store is None:
             logger.debug("memory save skipped because no memory store is configured")
@@ -75,6 +85,7 @@ class ConversationSideEffects:
         self.deliver_reply(
             reply,
             expects_follow_up=False,
+            ends_session_immediately=False,
             record_turn=False,
             mark_speaking=False,
             session=session,
@@ -82,6 +93,7 @@ class ConversationSideEffects:
             follow_up_timeout_seconds=follow_up_timeout_seconds,
             speech_cooldown_seconds=speech_cooldown_seconds,
             logger=logger,
+            request_id=request_id,
         )
         return reply
 
@@ -94,12 +106,14 @@ class ConversationSideEffects:
         follow_up_timeout_seconds: float,
         speech_cooldown_seconds: float,
         logger: logging.Logger,
+        request_id: int | None = None,
     ) -> str:
         reply = "Sorry, I had trouble reaching the server."
         session.set_error_message(error_message)
         self.deliver_reply(
             reply,
             expects_follow_up=False,
+            ends_session_immediately=False,
             record_turn=True,
             mark_speaking=True,
             session=session,
@@ -107,6 +121,7 @@ class ConversationSideEffects:
             follow_up_timeout_seconds=follow_up_timeout_seconds,
             speech_cooldown_seconds=speech_cooldown_seconds,
             logger=logger,
+            request_id=request_id,
         )
         return reply
 
@@ -120,12 +135,14 @@ class ConversationSideEffects:
         follow_up_timeout_seconds: float,
         speech_cooldown_seconds: float,
         logger: logging.Logger,
+        request_id: int | None = None,
     ) -> str:
         reply = self.build_status_report(session.status)
         session.set_last_user_text(interpreter.strip_wake_word(transcript.strip()))
         self.deliver_reply(
             reply,
             expects_follow_up=False,
+            ends_session_immediately=False,
             record_turn=True,
             mark_speaking=True,
             session=session,
@@ -133,6 +150,7 @@ class ConversationSideEffects:
             follow_up_timeout_seconds=follow_up_timeout_seconds,
             speech_cooldown_seconds=speech_cooldown_seconds,
             logger=logger,
+            request_id=request_id,
         )
         return reply
 

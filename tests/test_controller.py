@@ -412,7 +412,7 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertEqual(controller.get_status().phase.value, "idle")
 
     def test_wrap_up_question_keeps_session_open_for_follow_up(self) -> None:
-        responder = FakeResponder(response="Is there anything else I can help you with?")
+        responder = FakeResponder(response="Would you like me to keep going?")
         speaker = FakeSpeaker()
         controller = AssistantController(
             prompt_builder=PromptBuilder(
@@ -430,8 +430,8 @@ class AssistantControllerTests(unittest.TestCase):
 
         result = controller.process_transcript("amy summarize this")
 
-        self.assertEqual(result, "Is there anything else I can help you with?")
-        self.assertEqual(speaker.spoken, ["Is there anything else I can help you with?"])
+        self.assertEqual(result, "Would you like me to keep going?")
+        self.assertEqual(speaker.spoken, ["Would you like me to keep going?"])
         self.assertTrue(controller.get_status().active_conversation)
         self.assertEqual(controller.get_status().phase.value, "cooldown")
 
@@ -445,16 +445,47 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertFalse(controller.get_status().active_conversation)
         self.assertEqual(controller.get_status().phase.value, "idle")
 
-    def test_pause_and_cut_commands_change_state(self) -> None:
+    def test_terminal_wrap_up_phrases_end_the_conversation(self) -> None:
+        for response in ("You're welcome.", "Ready when you are."):
+            with self.subTest(response=response):
+                responder = FakeResponder(response=response)
+                speaker = FakeSpeaker()
+                controller = AssistantController(
+                    prompt_builder=PromptBuilder(
+                        assistant_name="Amy",
+                        project_context="",
+                        wake_word="amy",
+                    ),
+                    responder=responder,
+                    speaker=speaker,
+                    wake_word="amy",
+                    idle_timeout_seconds=0.05,
+                )
+                controller.speech_cooldown_seconds = 0.0
+                controller.follow_up_timeout_seconds = 0.0
+
+                result = controller.process_transcript("amy thanks")
+
+                self.assertEqual(result, response)
+                self.assertEqual(speaker.spoken, [response])
+                self.assertFalse(controller.get_status().active_conversation)
+                self.assertEqual(controller.get_status().phase.value, "idle")
+
+    def test_pause_and_resume_change_state(self) -> None:
         controller, _responder, speaker, _ = build_controller()
 
         controller.process_transcript("amy start")
-        controller.process_transcript("pause conversation")
+        controller.pause()
 
         self.assertTrue(controller.get_status().active_conversation)
         self.assertTrue(controller.get_status().paused)
         self.assertEqual(controller.get_status().phase.value, "paused")
         self.assertGreaterEqual(speaker.stopped, 1)
+
+        controller.resume()
+
+        self.assertFalse(controller.get_status().paused)
+        self.assertEqual(controller.get_status().phase.value, "awaiting_user_response")
 
     def test_resume_continues_preserved_conversation(self) -> None:
         controller, responder, _speaker, _ = build_controller()
@@ -483,10 +514,6 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertIsNone(controller.process_transcript("redirect to web search"))
         self.assertEqual(len(responder.calls), 1)
 
-        self.assertIsNone(controller.process_transcript("amy"))
-        self.assertFalse(controller.get_status().paused)
-        self.assertEqual(controller.get_status().phase.value, "awaiting_user_response")
-
         controller.resume()
         self.assertFalse(controller.get_status().paused)
         self.assertEqual(controller.get_status().phase.value, "awaiting_user_response")
@@ -501,16 +528,17 @@ class AssistantControllerTests(unittest.TestCase):
 
         self.assertFalse(controller.get_status().active_conversation)
 
-    def test_interrupt_commands_are_detectable_during_speech(self) -> None:
-        controller, _responder, _speaker, _ = build_controller()
+    def test_voice_control_words_are_treated_as_prompts(self) -> None:
+        controller, responder, _speaker, _ = build_controller()
+        controller.speech_cooldown_seconds = 0.0
+        controller.follow_up_timeout_seconds = 0.0
 
-        self.assertTrue(controller.is_interrupt_command("pause"))
-        self.assertTrue(controller.is_interrupt_command("Amy pause"))
-        self.assertTrue(controller.is_interrupt_command("resume"))
-        self.assertTrue(controller.is_interrupt_command("cut channel"))
-        self.assertTrue(controller.is_interrupt_command("stop"))
-        self.assertFalse(controller.is_interrupt_command("would you like recent headlines, whether alerts or event pause"))
-        self.assertFalse(controller.is_interrupt_command("hello there"))
+        controller.process_transcript("amy pause")
+        controller.process_transcript("amy resume")
+        controller.process_transcript("amy cut")
+        controller.process_transcript("amy stop")
+
+        self.assertEqual([call[-1].content for call in responder.calls], ["pause", "resume", "cut", "stop"])
 
     def test_search_prompt_injects_web_context(self) -> None:
         web_search = FakeWebSearch()

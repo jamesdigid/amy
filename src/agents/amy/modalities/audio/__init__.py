@@ -3,17 +3,15 @@ from __future__ import annotations
 from array import array
 import importlib
 from dataclasses import dataclass, field
-from pathlib import Path
-import contextlib
 from collections import deque
 import math
 import sys
+from pathlib import Path
 from typing import Deque, Iterator, Protocol, TypedDict, cast
 import logging
 import platform
 import subprocess
 import threading
-import wave
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +35,19 @@ class _TtsEngine(Protocol):
 
 
 @dataclass
+class AudioFrame:
+    data: bytes
+    overflow: bool = False
+
+
+@dataclass
 class AudioConfig:
     sample_rate: int = 16000
     frame_ms: int = 30
     pre_roll_ms: int = 300
     silence_ms: int = 700
     rms_threshold: int = 500
+    max_utterance_ms: int = 30_000
     input_device: str | int | None = None
 
     @property
@@ -57,10 +62,14 @@ class AudioConfig:
     def silence_frames(self) -> int:
         return max(1, int(self.silence_ms / self.frame_ms))
 
+    @property
+    def max_utterance_frames(self) -> int:
+        return max(1, int(self.max_utterance_ms / self.frame_ms))
+
 
 @dataclass
 class AudioSegment:
-    path: Path
+    pcm: bytes
     duration_seconds: float
 
 
@@ -71,6 +80,7 @@ class SpeechSegmenter:
         self._speech_frames: list[bytes] = []
         self._speaking = False
         self._silence_count = 0
+        self._speech_frame_count = 0
 
     def feed(self, frame: bytes) -> AudioSegment | None:
         self._pre_roll.append(frame)
@@ -81,37 +91,27 @@ class SpeechSegmenter:
                 self._speaking = True
                 self._speech_frames = list(self._pre_roll)
                 self._silence_count = 0
+                self._speech_frame_count = len(self._speech_frames)
             return None
 
         self._speech_frames.append(frame)
+        self._speech_frame_count += 1
         if rms < self._config.rms_threshold:
             self._silence_count += 1
         else:
             self._silence_count = 0
 
-        if self._silence_count < self._config.silence_frames:
+        if self._silence_count < self._config.silence_frames and self._speech_frame_count < self._config.max_utterance_frames:
             return None
 
         audio = b"".join(self._speech_frames)
         self._speech_frames = []
         self._speaking = False
         self._silence_count = 0
-        return self._write_temp_wav(audio)
-
-    def _write_temp_wav(self, audio: bytes) -> AudioSegment:
-        import tempfile
-
+        self._speech_frame_count = 0
         frame_count = len(audio) // 2
         duration_seconds = frame_count / self._config.sample_rate
-        temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-        temp_path = Path(temp_file.name)
-        temp_file.close()
-        with contextlib.closing(wave.open(str(temp_path), "wb")) as wav_file:
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)
-            wav_file.setframerate(self._config.sample_rate)
-            wav_file.writeframes(audio)
-        return AudioSegment(path=temp_path, duration_seconds=duration_seconds)
+        return AudioSegment(pcm=audio, duration_seconds=duration_seconds)
 
     def _rms(self, frame: bytes) -> int:
         if not frame:
@@ -132,6 +132,7 @@ class SpeechSegmenter:
         self._speech_frames = []
         self._speaking = False
         self._silence_count = 0
+        self._speech_frame_count = 0
 
 
 class MicrophoneSource:
@@ -157,17 +158,21 @@ class MicrophoneSource:
         return self
 
     def __exit__(self, *_exc: object) -> None:
+        self.abort()
+
+    def abort(self) -> None:
         if self._stream is not None:
             self._stream.stop()
             self._stream.close()
+            self._stream = None
 
-    def frames(self) -> Iterator[bytes]:
+    def frames(self) -> Iterator[AudioFrame]:
         if self._stream is None:
             raise RuntimeError("MicrophoneSource must be entered before reading frames")
 
         while True:
-            data, _overflow = self._stream.read(self._config.frame_samples)
-            yield bytes(data)
+            data, overflow = self._stream.read(self._config.frame_samples)
+            yield AudioFrame(data=bytes(data), overflow=overflow)
 
 
 class Transcriber(Protocol):
@@ -312,6 +317,7 @@ class LocalSpeaker:
 
 __all__ = [
     "AudioConfig",
+    "AudioFrame",
     "AudioSegment",
     "LocalSpeaker",
     "MicrophoneSource",

@@ -86,7 +86,8 @@ You can also edit `config/project_context.md` to shape Amy's tone and behavior f
 - Say `amy` to begin a voice interaction.
 - Say `amy status check` or `check your status` to ask Amy for her current runtime status, registered skills, a lightweight smoke test, and relevant skill notes.
 - After Amy responds, she stays in listening mode for about 10 seconds so you can follow up without repeating the wake word.
-- Use the terminal commands `pause`, `resume`, `status`, and `quit` while running in the foreground.
+- Voice has no control words. Use the terminal commands `pause`, `resume`, `status`, and `quit` while running in the foreground.
+- Background Amy has no pause/resume channel; use `stop` and restart it if you need to release the microphone.
 - Ask current or lookup-style questions and Amy will add basic web search context automatically.
 - Amy can also retrieve matching markdown memories from `src/agents/amy/memory` when your prompt terms match the dot-delimited file tags.
 - Say things like `remember that...`, `remember this...`, or `don't forget...` to make Amy consider saving a future memory.
@@ -101,4 +102,4 @@ You can also edit `config/project_context.md` to shape Amy's tone and behavior f
 - `.env` is loaded automatically by `./scripts/amy` when it exists.
 - If the model prefetch fails during setup, Amy will still work and download the transcription model on first run.
 - If `python3` is not available, install Python 3.10+ first and rerun `./scripts/amy setup`.
-- For microphone access during a call, use `pause` so Amy releases the channel immediately.
+- For microphone access during a call in the foreground, use `pause` so Amy releases the channel immediately. In the background, stop Amy and start it again when you are ready.

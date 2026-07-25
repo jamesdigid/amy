@@ -56,6 +56,8 @@ class StatusReporterTests(unittest.TestCase):
 
             self.assertIn("Status check: idle", report)
             self.assertIn("Capabilities:", report)
+            self.assertIn("foreground terminal pause/resume", report)
+            self.assertNotIn("pause/resume/cut", report)
             self.assertIn("Registered skills:", report)
             self.assertIn("test suite", report)
             self.assertIn("Smoke test: 5/5 passed", report)

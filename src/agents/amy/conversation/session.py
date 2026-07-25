@@ -9,6 +9,12 @@ from ..models import AssistantPhase, AssistantStatus, ConversationTurn
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class RequestGeneration:
+    request_id: int
+    cancel_event: threading.Event
+
+
 @dataclass
 class ConversationSession:
     status: AssistantStatus = field(default_factory=AssistantStatus)
@@ -17,10 +23,44 @@ class ConversationSession:
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _idle_timer: threading.Timer | None = field(default=None, init=False, repr=False)
     _speech_cooldown_timer: threading.Timer | None = field(default=None, init=False, repr=False)
+    _epoch: int = field(default=0, init=False, repr=False)
+    _request_generation: RequestGeneration | None = field(default=None, init=False, repr=False)
 
     @property
     def cancel_event(self) -> threading.Event:
-        return self._cancel_event
+        with self._lock:
+            if self._request_generation is not None:
+                return self._request_generation.cancel_event
+            return self._cancel_event
+
+    @property
+    def epoch(self) -> int:
+        with self._lock:
+            return self._epoch
+
+    def begin_processing(self) -> RequestGeneration:
+        with self._lock:
+            self._cancel_idle_timer_locked()
+            self._cancel_speech_cooldown_locked()
+            self._cancel_active_generation_locked()
+            self._epoch += 1
+            generation = RequestGeneration(
+                request_id=self._epoch,
+                cancel_event=threading.Event(),
+            )
+            self._request_generation = generation
+            self.status.phase = AssistantPhase.THINKING
+            return generation
+
+    def claim_delivery(self, request_id: int) -> bool:
+        with self._lock:
+            generation = self._request_generation
+            if generation is None or generation.request_id != request_id:
+                return False
+            if self.status.paused or generation.cancel_event.is_set():
+                return False
+            self.status.phase = AssistantPhase.SPEAKING
+            return True
 
     @property
     def lock(self) -> threading.Lock:
@@ -31,13 +71,16 @@ class ConversationSession:
             logger.debug("pause requested")
             self._cancel_idle_timer_locked()
             self._cancel_speech_cooldown_locked()
-            self._cancel_event.set()
+            self._cancel_active_generation_locked()
+            self._epoch += 1
             self.status.paused = True
             self.status.phase = AssistantPhase.PAUSED
 
     def resume(self, *, idle_timeout_seconds: float, follow_up_timeout_seconds: float) -> None:
         with self._lock:
             logger.debug("resume requested")
+            self._cancel_active_generation_locked()
+            self._epoch += 1
             self.status.paused = False
             if self.status.active_conversation:
                 self.status.phase = AssistantPhase.AWAITING_USER_RESPONSE
@@ -49,21 +92,12 @@ class ConversationSession:
             else:
                 self.status.phase = AssistantPhase.LISTENING
 
-    def cut_channel(self) -> None:
-        with self._lock:
-            logger.debug("cut requested")
-            self._cancel_idle_timer_locked()
-            self._cancel_speech_cooldown_locked()
-            self._cancel_event.set()
-            self.status.active_conversation = False
-            self.status.paused = True
-            self.status.phase = AssistantPhase.PAUSED
-
     def stop(self) -> None:
         with self._lock:
             self._cancel_idle_timer_locked()
             self._cancel_speech_cooldown_locked()
-            self._cancel_event.set()
+            self._cancel_active_generation_locked()
+            self._epoch += 1
             self.status.active_conversation = False
             self.status.phase = AssistantPhase.IDLE
             self.status.paused = False
@@ -80,12 +114,8 @@ class ConversationSession:
 
     def record_user_turn(self, prompt: str) -> None:
         with self._lock:
-            self._cancel_idle_timer_locked()
-            self._cancel_speech_cooldown_locked()
-            self.status.phase = AssistantPhase.THINKING
             self.status.last_user_text = prompt
             self.turns.append(ConversationTurn(role="user", content=prompt))
-            self._cancel_event.clear()
 
     def set_last_user_text(self, prompt: str) -> None:
         with self._lock:
@@ -131,6 +161,7 @@ class ConversationSession:
             return self.status.paused or self.status.phase in {
                 AssistantPhase.SPEAKING,
                 AssistantPhase.COOLDOWN,
+                AssistantPhase.THINKING,
             }
 
     def _schedule_idle_timeout_locked(self, timeout_seconds: float) -> None:
@@ -185,6 +216,12 @@ class ConversationSession:
         if self._speech_cooldown_timer is not None:
             self._speech_cooldown_timer.cancel()
             self._speech_cooldown_timer = None
+
+    def _cancel_active_generation_locked(self) -> None:
+        generation = self._request_generation
+        if generation is not None:
+            generation.cancel_event.set()
+            self._request_generation = None
 
     def _finish_post_speech_transition(
         self,

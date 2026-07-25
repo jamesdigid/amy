@@ -4,9 +4,16 @@ from dataclasses import dataclass
 from pathlib import Path
 import logging
 import re
+from typing import Protocol
 
 from ..models import AssistantStatus
-from ..skills.registry import AmySkillRegistry, SkillSmokeResult
+from ..skills.registry import SkillSmokeResult
+
+class SkillRegistryProtocol(Protocol):
+    def registered_skills(self) -> list[str]: ...
+
+    def smoke_test(self) -> list[SkillSmokeResult]: ...
+
 
 MAX_SKILL_STEM_LENGTH = 100
 MAX_SKILL_TAGS = 10
@@ -26,7 +33,7 @@ _SKILL_NOTE_TAGS = {
 @dataclass(frozen=True)
 class AmyStatusReporter:
     memory_dir: Path
-    skill_registry: AmySkillRegistry | None = None
+    skill_registry: SkillRegistryProtocol | None = None
     web_search_enabled: bool = True
     transcript_logging_enabled: bool = False
     max_skill_notes: int = 3
@@ -72,7 +79,7 @@ class AmyStatusReporter:
         parts = [
             "wake-word voice input",
             "listen/respond",
-            "pause/resume/cut",
+            "foreground terminal pause/resume",
             "memory save/retrieve",
             "local speech recognition",
             "local speech output",

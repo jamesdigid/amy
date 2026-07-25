@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import logging
 from pathlib import Path
 import time
+import threading
 from typing import Callable
 
 from .context.pipeline import ResponsePipeline
@@ -67,6 +68,10 @@ class AssistantController:
     def turns(self) -> list[ConversationTurn]:
         return self._session.turns
 
+    @property
+    def epoch(self) -> int:
+        return self._session.epoch
+
     def pause(self) -> None:
         self._session.pause()
         self.speaker.stop()
@@ -77,46 +82,55 @@ class AssistantController:
             follow_up_timeout_seconds=self.follow_up_timeout_seconds,
         )
 
-    def cut_channel(self) -> None:
-        self._session.cut_channel()
-        self.speaker.stop()
-
     def stop(self) -> None:
         self._session.stop()
         self.speaker.stop()
 
-    def process_transcript(self, transcript: str, *, source_path: Path | None = None) -> str | None:
+    def process_transcript(
+        self,
+        transcript: str,
+        *,
+        utterance_id: str | None = None,
+        source_path: Path | None = None,
+    ) -> str | None:
         process_started = time.perf_counter()
         normalized = self._interpreter.normalize_text(transcript)
         if not normalized:
             return None
+        source_ref = utterance_id if utterance_id is not None else source_path
 
         self._logger.debug(
             "received transcript: raw=%r normalized=%r source=%s",
             transcript,
             normalized,
-            source_path,
+            source_ref,
         )
 
-        handled, control_reply = self._handle_control_transcript(normalized, transcript, source_path=source_path)
+        handled, control_reply = self._handle_control_transcript(
+            normalized,
+            transcript,
+            source_ref=source_ref,
+        )
         if handled:
             return control_reply
 
-        prompt = self._prepare_prompt(transcript, normalized, source_path=source_path)
+        prompt = self._prepare_prompt(transcript, normalized, source_ref=source_ref)
         if prompt is None:
             return None
 
-        if saved_reply := self._maybe_save_memory(prompt):
+        generation = self._session.begin_processing()
+
+        if saved_reply := self._maybe_save_memory(prompt, generation.cancel_event, generation.request_id):
             return saved_reply
 
-        return self._generate_reply(prompt, process_started)
+        return self._generate_reply(prompt, process_started, generation.cancel_event, generation.request_id)
 
     def _handle_control_transcript(
         self,
         normalized: str,
         transcript: str,
         *,
-        source_path: Path | None = None,
+        source_ref: str | Path | None = None,
     ) -> tuple[bool, str | None]:
         if self._interpreter.is_acknowledgement_echo(
             normalized,
@@ -126,18 +140,6 @@ class AssistantController:
             self._logger.debug("dropping acknowledgement echo")
             return True, None
 
-        if self._interpreter.is_pause_command(normalized):
-            self._logger.debug("pause command matched")
-            self.pause()
-            return True, None
-        if self._interpreter.is_resume_command(normalized):
-            self._logger.debug("resume command matched")
-            self.resume()
-            return True, None
-        if self._interpreter.is_cut_command(normalized):
-            self._logger.debug("cut command matched")
-            self.cut_channel()
-            return True, None
         if self._interpreter.is_status_command(normalized):
             self._logger.debug("status command matched")
             return (
@@ -153,26 +155,32 @@ class AssistantController:
                 ),
             )
 
-        if self.status.paused and self._interpreter.starts_with_wake_word(normalized):
-            self._logger.debug("wake word matched while paused; resuming")
-            self.resume()
+        if self.status.paused:
+            self._logger.debug("dropping transcript because assistant is paused")
+            return True, None
 
         if self._session.should_drop_main_transcript():
-            self._logger.debug("dropping transcript because assistant is in speech cooldown: source=%s", source_path)
+            self._logger.debug("dropping transcript because assistant is in speech cooldown: source=%s", source_ref)
             return True, None
         return False, None
 
-    def _prepare_prompt(self, transcript: str, normalized: str, *, source_path: Path | None = None) -> str | None:
+    def _prepare_prompt(
+        self,
+        transcript: str,
+        normalized: str,
+        *,
+        source_ref: str | Path | None = None,
+    ) -> str | None:
         prompt = transcript.strip()
         prompt = self._interpreter.strip_acknowledgement_prefix(prompt)
         if not self.status.active_conversation:
             if not self._interpreter.starts_with_wake_word(normalized):
-                self._logger.debug("dropping transcript because wake word did not match: source=%s", source_path)
+                self._logger.debug("dropping transcript because wake word did not match: source=%s", source_ref)
                 return None
             prompt = self._interpreter.strip_wake_word(prompt)
             prompt = self._interpreter.strip_acknowledgement_prefix(prompt)
             if not prompt:
-                self._logger.debug("wake word alone; acknowledging only: source=%s", source_path)
+                self._logger.debug("wake word alone; acknowledging only: source=%s", source_ref)
                 self._session.acknowledge_wake_word()
                 self._effects.stop_acknowledgement_loop()
                 self.speaker.speak("Amy here")
@@ -184,26 +192,26 @@ class AssistantController:
                 )
                 return None
             self._session.begin_recording()
-            self._logger.debug("wake word matched; capturing prompt: source=%s", source_path)
+            self._logger.debug("wake word matched; capturing prompt: source=%s", source_ref)
         else:
             prompt = self._interpreter.strip_wake_word(prompt)
             prompt = self._interpreter.strip_acknowledgement_prefix(prompt)
             if not prompt:
                 self._logger.debug(
                     "active conversation but prompt empty after stripping wake word: source=%s",
-                    source_path,
+                    source_ref,
                 )
                 return None
         return prompt
 
-    def _maybe_save_memory(self, prompt: str) -> str | None:
+    def _maybe_save_memory(self, prompt: str, cancel_event: threading.Event, request_id: int) -> str | None:
         explicit_memory_request = self._interpreter.is_memory_request(prompt)
         memory_decision: MemoryDecision | None = None
         memory_considered = self._interpreter.should_consider_memory(prompt)
         if self.memory_classifier is not None and memory_considered:
             classifier_started = time.perf_counter()
             try:
-                memory_decision = self.memory_classifier.classify(prompt, self._session.cancel_event)
+                memory_decision = self.memory_classifier.classify(prompt, cancel_event)
                 classifier_elapsed = time.perf_counter() - classifier_started
                 self._logger.debug(
                     "memory classifier decision in %.3fs: save=%s subject=%r confidence=%.2f reason=%r",
@@ -243,10 +251,20 @@ class AssistantController:
             follow_up_timeout_seconds=self.follow_up_timeout_seconds,
             speech_cooldown_seconds=self.speech_cooldown_seconds,
             logger=self._logger,
+            request_id=request_id,
         )
 
-    def _generate_reply(self, prompt: str, process_started: float) -> str | None:
+    def _generate_reply(
+        self,
+        prompt: str,
+        process_started: float,
+        cancel_event: threading.Event,
+        request_id: int,
+    ) -> str | None:
         web_context, memory_context = self._pipeline.collect_context(prompt, self._interpreter)
+        if cancel_event.is_set():
+            self._logger.debug("reply cancelled before recording user turn")
+            return None
         self._session.record_user_turn(prompt)
 
         messages = self._pipeline.build_messages(
@@ -259,7 +277,7 @@ class AssistantController:
         self._logger.debug("sending %d messages to responder", len(messages))
         reply_started = time.perf_counter()
         try:
-            reply = self.responder.generate_reply(messages, self._session.cancel_event)
+            reply = self.responder.generate_reply(messages, cancel_event)
         except Exception as exc:  # pragma: no cover - runtime path
             self._logger.exception("responder failed")
             return self._effects.handle_responder_failure(
@@ -269,19 +287,22 @@ class AssistantController:
                 follow_up_timeout_seconds=self.follow_up_timeout_seconds,
                 speech_cooldown_seconds=self.speech_cooldown_seconds,
                 logger=self._logger,
+                request_id=request_id,
             )
         reply_elapsed = time.perf_counter() - reply_started
         self._logger.debug("responder completed in %.3fs", reply_elapsed)
 
-        if self._session.cancel_event.is_set():
+        if cancel_event.is_set():
             self._logger.debug("reply cancelled before speech")
             return None
 
         reply = self._interpreter.limit_follow_up_questions(reply)
-        expects_follow_up = self._interpreter.reply_expects_follow_up(reply) or self._interpreter.reply_ends_session_immediately(reply)
+        ends_session_immediately = self._interpreter.reply_ends_session_immediately(reply)
+        expects_follow_up = self._interpreter.reply_expects_follow_up(reply) and not ends_session_immediately
         speak_elapsed = self._effects.deliver_reply(
             reply,
             expects_follow_up=expects_follow_up,
+            ends_session_immediately=ends_session_immediately,
             record_turn=True,
             mark_speaking=True,
             session=self._session,
@@ -289,6 +310,7 @@ class AssistantController:
             follow_up_timeout_seconds=self.follow_up_timeout_seconds,
             speech_cooldown_seconds=self.speech_cooldown_seconds,
             logger=self._logger,
+            request_id=request_id,
         )
         total_elapsed = time.perf_counter() - process_started
         self._logger.debug(
@@ -301,14 +323,6 @@ class AssistantController:
 
     def get_status(self) -> AssistantStatus:
         return self.status
-
-    def is_interrupt_command(self, transcript: str) -> bool:
-        normalized = self._interpreter.normalize_text(transcript)
-        return self._interpreter.looks_like_short_interrupt(normalized)
-
-    def is_wake_word_command(self, transcript: str) -> bool:
-        normalized = self._interpreter.normalize_text(transcript)
-        return self._interpreter.starts_with_wake_word(normalized)
 
     def should_drop_main_transcript(self) -> bool:
         return self._session.should_drop_main_transcript()
