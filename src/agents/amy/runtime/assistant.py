@@ -19,6 +19,12 @@ from .status import AmyStatusReporter
 StatusCallback = Callable[[str], None]
 
 
+@dataclass(frozen=True)
+class TranscriptJob:
+    transcript: str
+    source_path: Path
+
+
 logger = logging.getLogger(__name__)
 command_logger = logging.getLogger("agents.command_listener")
 
@@ -31,8 +37,8 @@ class AssistantRuntime:
     log_transcripts: bool = False
     status_reporter: AmyStatusReporter | None = None
     on_status: StatusCallback = field(default=lambda _message: None)
-    _transcript_queue: queue.Queue[str] = field(default_factory=lambda: queue.Queue[str](), init=False)
-    _command_queue: queue.Queue[str] = field(default_factory=lambda: queue.Queue[str](), init=False)
+    _transcript_queue: queue.Queue[TranscriptJob] = field(default_factory=lambda: queue.Queue[TranscriptJob](), init=False)
+    _command_queue: queue.Queue[TranscriptJob] = field(default_factory=lambda: queue.Queue[TranscriptJob](), init=False)
     _stop_event: threading.Event = field(default_factory=threading.Event, init=False)
     _capture_enabled: threading.Event = field(default_factory=threading.Event, init=False)
     _capture_thread: threading.Thread | None = field(default=None, init=False)
@@ -126,22 +132,26 @@ class AssistantRuntime:
                         break
                     command_segment = command_segmenter.feed(frame)
                     if command_segment is not None:
+                        command_audio_path = command_segment.path
                         if command_segment.duration_seconds > 2.5:
-                            self._cleanup_audio_segment(command_segment.path)
+                            self._cleanup_audio_segment(command_audio_path)
                             continue
                         command_started = time.perf_counter()
                         try:
-                            command_text = self.transcriber.transcribe(command_segment.path)
+                            command_text = self.transcriber.transcribe(command_audio_path)
                         finally:
-                            self._cleanup_audio_segment(command_segment.path)
+                            self._cleanup_audio_segment(command_audio_path)
                         command_elapsed = time.perf_counter() - command_started
                         command_logger.debug(
-                            "command transcript ready in %.3fs for %.2fs audio",
+                            "command transcript ready in %.3fs for %.2fs audio from %s",
                             command_elapsed,
                             command_segment.duration_seconds,
+                            command_audio_path,
                         )
                         if self.controller.is_interrupt_command(command_text):
-                            self._command_queue.put(command_text)
+                            self._command_queue.put(
+                                TranscriptJob(transcript=command_text, source_path=command_audio_path)
+                            )
 
                     if self.controller.should_drop_main_transcript():
                         speech_segmenter.reset()
@@ -150,21 +160,23 @@ class AssistantRuntime:
                     segment = speech_segmenter.feed(frame)
                     if segment is None:
                         continue
+                    transcript_audio_path = segment.path
                     transcript_started = time.perf_counter()
                     try:
-                        text = self.transcriber.transcribe(segment.path)
+                        text = self.transcriber.transcribe(transcript_audio_path)
                     finally:
-                        self._cleanup_audio_segment(segment.path)
+                        self._cleanup_audio_segment(transcript_audio_path)
                     transcript_elapsed = time.perf_counter() - transcript_started
                     logger.debug(
-                        "main transcript ready in %.3fs for %.2fs audio",
+                        "main transcript ready in %.3fs for %.2fs audio from %s",
                         transcript_elapsed,
                         segment.duration_seconds,
+                        transcript_audio_path,
                     )
-                    self._log_transcript("main", text)
+                    self._log_transcript("main", text, transcript_audio_path)
                     if not self._should_queue_main_transcript():
                         continue
-                    self._transcript_queue.put(text)
+                    self._transcript_queue.put(TranscriptJob(transcript=text, source_path=transcript_audio_path))
         except Exception as exc:  # pragma: no cover - runtime path
             self.controller.status.error_message = str(exc)
             self.on_status(f"capture error: {exc}")
@@ -174,14 +186,14 @@ class AssistantRuntime:
     def _worker_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
-                transcript = self._transcript_queue.get(timeout=0.2)
+                job = self._transcript_queue.get(timeout=0.2)
             except queue.Empty:
                 continue
-            if not transcript.strip():
+            if not job.transcript.strip():
                 continue
             try:
                 worker_started = time.perf_counter()
-                self.controller.process_transcript(transcript)
+                self.controller.process_transcript(job.transcript, source_path=job.source_path)
                 worker_elapsed = time.perf_counter() - worker_started
                 logger.debug("controller processed transcript in %.3fs", worker_elapsed)
             except Exception as exc:  # pragma: no cover - runtime path
@@ -194,15 +206,15 @@ class AssistantRuntime:
         command_logger.debug("worker started")
         while not self._stop_event.is_set():
             try:
-                transcript = self._command_queue.get(timeout=0.2)
+                job = self._command_queue.get(timeout=0.2)
             except queue.Empty:
                 continue
-            if not transcript.strip():
+            if not job.transcript.strip():
                 continue
             try:
-                command_logger.debug("processing transcript: %r", transcript)
-                self._log_transcript("command", transcript)
-                self.handle_command_transcript(transcript)
+                command_logger.debug("processing transcript from %s: %r", job.source_path, job.transcript)
+                self._log_transcript("command", job.transcript, job.source_path)
+                self.handle_command_transcript(job.transcript, source_path=job.source_path)
             except Exception as exc:  # pragma: no cover - runtime path
                 self.controller.status.error_message = str(exc)
                 self.on_status(f"command worker error: {exc}")
@@ -225,15 +237,16 @@ class AssistantRuntime:
         self,
         _source: str,
         transcript: str,
+        source_path: Path,
     ) -> None:
         if not self.log_transcripts:
             return
-        logger.info("%s", transcript)
+        logger.info("%s from %s", transcript, source_path)
 
-    def handle_command_transcript(self, transcript: str) -> None:
+    def handle_command_transcript(self, transcript: str, *, source_path: Path | None = None) -> None:
         if self.controller.is_interrupt_command(transcript):
-            command_logger.debug("matched interrupt: %r", transcript)
-            self.controller.process_transcript(transcript)
+            command_logger.debug("matched interrupt from %s: %r", source_path, transcript)
+            self.controller.process_transcript(transcript, source_path=source_path)
 
     def play_acknowledgement_loop(self) -> None:
         if self._acknowledgement_thread is not None and self._acknowledgement_thread.is_alive():

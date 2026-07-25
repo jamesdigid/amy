@@ -4,6 +4,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+import time
 
 from agents.amy.models import AssistantPhase
 from agents.amy.modalities.audio import AudioConfig, StubTranscriber
@@ -29,13 +30,15 @@ class DummyController:
             },
         )()
         self.processed: list[str] = []
+        self.processed_sources: list[Path | None] = []
         self.status_messages: list[str] = []
 
     def is_interrupt_command(self, transcript: str) -> bool:
         return transcript.strip().lower() in {"pause", "stop"}
 
-    def process_transcript(self, transcript: str) -> str | None:
+    def process_transcript(self, transcript: str, source_path: Path | None = None) -> str | None:
         self.processed.append(transcript)
+        self.processed_sources.append(source_path)
         return None
 
     def should_drop_main_transcript(self) -> bool:
@@ -94,12 +97,14 @@ class RuntimeTests(unittest.TestCase):
         )
 
         runtime.on_status("command listener active")
-        runtime.handle_command_transcript("pause")
-        runtime.handle_command_transcript("stop")
-        runtime.handle_command_transcript("hello there")
+        command_audio_path = Path("/tmp/command.wav")
+        runtime.handle_command_transcript("pause", source_path=command_audio_path)
+        runtime.handle_command_transcript("stop", source_path=command_audio_path)
+        runtime.handle_command_transcript("hello there", source_path=command_audio_path)
 
         self.assertIn("command listener active", controller.status_messages)
         self.assertEqual(controller.processed, ["pause", "stop"])
+        self.assertEqual(controller.processed_sources, [command_audio_path, command_audio_path])
 
     def test_should_queue_main_transcript_honors_speech_and_cooldown_gates(self) -> None:
         controller = DummyController()
@@ -281,6 +286,37 @@ class RuntimeTests(unittest.TestCase):
 
             self.assertGreaterEqual(len(transcriber.paths), 1)
             self.assertTrue(all(not path.exists() for path in transcriber.paths))
+            queued_sources: list[Path] = []
+            while not runtime._transcript_queue.empty():
+                queued_sources.append(runtime._transcript_queue.get_nowait().source_path)
+            self.assertEqual(queued_sources, [transcriber.paths[-1]])
         finally:
             runtime_module.SpeechSegmenter = original_speech_segmenter  # type: ignore[assignment]
             runtime_module.MicrophoneSource = original_microphone_source  # type: ignore[assignment]
+
+    def test_worker_loop_passes_source_path_to_controller(self) -> None:
+        stop_event = threading.Event()
+
+        class StopAfterFirstController(DummyController):
+            def process_transcript(self, transcript: str, source_path: Path | None = None) -> str | None:
+                result = super().process_transcript(transcript, source_path=source_path)
+                stop_event.set()
+                return result
+
+        controller = StopAfterFirstController()
+        runtime = AssistantRuntime(
+            controller=controller,  # type: ignore[arg-type]
+            transcriber=StubTranscriber("hello"),
+            audio_config=AudioConfig(),
+            on_status=controller.status_messages.append,
+        )
+        runtime._stop_event = stop_event
+        audio_path = Path("/tmp/main.wav")
+        runtime._transcript_queue.put(runtime_module.TranscriptJob(transcript="hello", source_path=audio_path))
+
+        worker = threading.Thread(target=runtime._worker_loop)
+        worker.start()
+        worker.join(timeout=1)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(controller.processed_sources, [audio_path])

@@ -3,15 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from dataclasses import field
 import threading
-from typing import TYPE_CHECKING, Iterable, cast
+from typing import Iterable, cast
 
 from openai import OpenAI
+from openai.types.chat import ChatCompletion
+from openai.types.chat import ChatCompletionMessageParam
 
 from ..amy.models import Message
-
-if TYPE_CHECKING:
-    from openai.types.chat import ChatCompletion
-    from openai.types.chat import ChatCompletionMessageParam
 
 
 @dataclass

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import logging
+from pathlib import Path
 import time
 from typing import Callable
 
@@ -84,19 +85,24 @@ class AssistantController:
         self._session.stop()
         self.speaker.stop()
 
-    def process_transcript(self, transcript: str) -> str | None:
+    def process_transcript(self, transcript: str, *, source_path: Path | None = None) -> str | None:
         process_started = time.perf_counter()
         normalized = self._interpreter.normalize_text(transcript)
         if not normalized:
             return None
 
-        self._logger.debug("received transcript: raw=%r normalized=%r", transcript, normalized)
+        self._logger.debug(
+            "received transcript: raw=%r normalized=%r source=%s",
+            transcript,
+            normalized,
+            source_path,
+        )
 
-        handled, control_reply = self._handle_control_transcript(normalized, transcript)
+        handled, control_reply = self._handle_control_transcript(normalized, transcript, source_path=source_path)
         if handled:
             return control_reply
 
-        prompt = self._prepare_prompt(transcript, normalized)
+        prompt = self._prepare_prompt(transcript, normalized, source_path=source_path)
         if prompt is None:
             return None
 
@@ -105,7 +111,13 @@ class AssistantController:
 
         return self._generate_reply(prompt, process_started)
 
-    def _handle_control_transcript(self, normalized: str, transcript: str) -> tuple[bool, str | None]:
+    def _handle_control_transcript(
+        self,
+        normalized: str,
+        transcript: str,
+        *,
+        source_path: Path | None = None,
+    ) -> tuple[bool, str | None]:
         if self._interpreter.is_acknowledgement_echo(
             normalized,
             active_conversation=self.status.active_conversation,
@@ -142,21 +154,21 @@ class AssistantController:
             )
 
         if self._session.should_drop_main_transcript():
-            self._logger.debug("dropping transcript because assistant is in speech cooldown")
+            self._logger.debug("dropping transcript because assistant is in speech cooldown: source=%s", source_path)
             return True, None
         return False, None
 
-    def _prepare_prompt(self, transcript: str, normalized: str) -> str | None:
+    def _prepare_prompt(self, transcript: str, normalized: str, *, source_path: Path | None = None) -> str | None:
         prompt = transcript.strip()
         prompt = self._interpreter.strip_acknowledgement_prefix(prompt)
         if not self.status.active_conversation:
             if not self._interpreter.starts_with_wake_word(normalized):
-                self._logger.debug("dropping transcript because wake word did not match")
+                self._logger.debug("dropping transcript because wake word did not match: source=%s", source_path)
                 return None
             prompt = self._interpreter.strip_wake_word(prompt)
             prompt = self._interpreter.strip_acknowledgement_prefix(prompt)
             if not prompt:
-                self._logger.debug("wake word alone; acknowledging only")
+                self._logger.debug("wake word alone; acknowledging only: source=%s", source_path)
                 self._session.acknowledge_wake_word()
                 self._effects.stop_acknowledgement_loop()
                 self.speaker.speak("Amy here")
@@ -168,12 +180,15 @@ class AssistantController:
                 )
                 return None
             self._session.begin_recording()
-            self._logger.debug("wake word matched; capturing prompt")
+            self._logger.debug("wake word matched; capturing prompt: source=%s", source_path)
         else:
             prompt = self._interpreter.strip_wake_word(prompt)
             prompt = self._interpreter.strip_acknowledgement_prefix(prompt)
             if not prompt:
-                self._logger.debug("active conversation but prompt empty after stripping wake word")
+                self._logger.debug(
+                    "active conversation but prompt empty after stripping wake word: source=%s",
+                    source_path,
+                )
                 return None
         return prompt
 

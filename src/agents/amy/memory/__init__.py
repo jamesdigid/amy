@@ -7,12 +7,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam
 
 from ..protocols import MemoryClassifierProtocol, MemoryStoreProtocol
 
 if TYPE_CHECKING:
     import threading
-    from openai.types.chat import ChatCompletionMessageParam
 
 MAX_MEMORY_TAGS = 10
 MAX_MEMORY_STEM_LENGTH = 100

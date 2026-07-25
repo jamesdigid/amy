@@ -49,7 +49,7 @@ To start Amy in the background after setup:
 After setup, you can also use the installed console script inside the venv:
 
 ```bash
-amy run
+./scripts/amy run
 ```
 
 ## Test Suite
@@ -67,6 +67,7 @@ If you have already run `./scripts/amy setup`, you can also run tests from the l
 
 ## Configuration
 Optional environment variables:
+
 - `AMY_MODEL`
 - `AMY_ASSISTANT_NAME`
 - `AMY_CONTEXT_PATH`
