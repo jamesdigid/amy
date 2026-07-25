@@ -152,6 +152,10 @@ class AssistantRuntime:
                             self._command_queue.put(
                                 TranscriptJob(transcript=command_text, source_path=command_audio_path)
                             )
+                        elif self.controller.status.paused and self.controller.is_wake_word_command(command_text):
+                            self._command_queue.put(
+                                TranscriptJob(transcript=command_text, source_path=command_audio_path)
+                            )
 
                     if self.controller.should_drop_main_transcript():
                         speech_segmenter.reset()
@@ -246,6 +250,9 @@ class AssistantRuntime:
     def handle_command_transcript(self, transcript: str, *, source_path: Path | None = None) -> None:
         if self.controller.is_interrupt_command(transcript):
             command_logger.debug("matched interrupt from %s: %r", source_path, transcript)
+            self.controller.process_transcript(transcript, source_path=source_path)
+        elif self.controller.status.paused and self.controller.is_wake_word_command(transcript):
+            command_logger.debug("matched wake word from %s: %r", source_path, transcript)
             self.controller.process_transcript(transcript, source_path=source_path)
 
     def play_acknowledgement_loop(self) -> None:

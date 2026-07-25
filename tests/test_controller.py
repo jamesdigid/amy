@@ -480,8 +480,12 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertTrue(controller.get_status().paused)
         self.assertEqual(controller.get_status().phase.value, "paused")
 
-        self.assertIsNone(controller.process_transcript("amy redirect to web search"))
+        self.assertIsNone(controller.process_transcript("redirect to web search"))
         self.assertEqual(len(responder.calls), 1)
+
+        self.assertIsNone(controller.process_transcript("amy"))
+        self.assertFalse(controller.get_status().paused)
+        self.assertEqual(controller.get_status().phase.value, "awaiting_user_response")
 
         controller.resume()
         self.assertFalse(controller.get_status().paused)

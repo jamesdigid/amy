@@ -153,6 +153,10 @@ class AssistantController:
                 ),
             )
 
+        if self.status.paused and self._interpreter.starts_with_wake_word(normalized):
+            self._logger.debug("wake word matched while paused; resuming")
+            self.resume()
+
         if self._session.should_drop_main_transcript():
             self._logger.debug("dropping transcript because assistant is in speech cooldown: source=%s", source_path)
             return True, None
@@ -301,6 +305,10 @@ class AssistantController:
     def is_interrupt_command(self, transcript: str) -> bool:
         normalized = self._interpreter.normalize_text(transcript)
         return self._interpreter.looks_like_short_interrupt(normalized)
+
+    def is_wake_word_command(self, transcript: str) -> bool:
+        normalized = self._interpreter.normalize_text(transcript)
+        return self._interpreter.starts_with_wake_word(normalized)
 
     def should_drop_main_transcript(self) -> bool:
         return self._session.should_drop_main_transcript()

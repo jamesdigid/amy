@@ -36,6 +36,9 @@ class DummyController:
     def is_interrupt_command(self, transcript: str) -> bool:
         return transcript.strip().lower() in {"pause", "stop"}
 
+    def is_wake_word_command(self, transcript: str) -> bool:
+        return transcript.strip().lower().startswith("amy")
+
     def process_transcript(self, transcript: str, source_path: Path | None = None) -> str | None:
         self.processed.append(transcript)
         self.processed_sources.append(source_path)
@@ -105,6 +108,22 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn("command listener active", controller.status_messages)
         self.assertEqual(controller.processed, ["pause", "stop"])
         self.assertEqual(controller.processed_sources, [command_audio_path, command_audio_path])
+
+    def test_handle_command_transcript_processes_wake_word_while_paused(self) -> None:
+        controller = DummyController()
+        controller.status.paused = True
+        runtime = AssistantRuntime(
+            controller=controller,  # type: ignore[arg-type]
+            transcriber=StubTranscriber("amy"),
+            audio_config=AudioConfig(),
+            on_status=controller.status_messages.append,
+        )
+
+        command_audio_path = Path("/tmp/command.wav")
+        runtime.handle_command_transcript("amy", source_path=command_audio_path)
+
+        self.assertEqual(controller.processed, ["amy"])
+        self.assertEqual(controller.processed_sources, [command_audio_path])
 
     def test_should_queue_main_transcript_honors_speech_and_cooldown_gates(self) -> None:
         controller = DummyController()
