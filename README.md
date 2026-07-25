@@ -9,15 +9,6 @@ Local Python voice assistant that wakes on `amy`, transcribes speech locally, ca
 - An OpenAI API key in `OPENAI_API_KEY`
 
 ## Quick Start
-The repo now supports a single bootstrap script:
-
-```bash
-./scripts/amy setup
-```
-
-That creates the local virtual environment, installs the assistant with audio and developer dependencies, and prefetches the default transcription model so the first live run is faster.
-If `ffmpeg` is missing on macOS, the setup step will install it through Homebrew automatically.
-
 Before you run Amy, create a local `.env` file from the example:
 
 ```bash
@@ -30,7 +21,16 @@ Then add your OpenAI key to `.env`:
 OPENAI_API_KEY=your-openai-api-key
 ```
 
-To deploy Amy in the background after setup:
+Then run the bootstrap script:
+
+```bash
+./scripts/amy setup
+```
+
+That creates the local virtual environment, installs the assistant with audio and developer dependencies, and prefetches the default transcription model so the first live run is faster.
+If `ffmpeg` is missing on macOS, the setup step will install it through Homebrew automatically.
+
+To start Amy in the background after setup:
 
 ```bash
 ./scripts/amy deploy
@@ -43,6 +43,8 @@ To deploy Amy in the background after setup:
 - `./scripts/amy stop` stops the background process.
 - `./scripts/amy status` reports whether the background process is running.
 - `./scripts/amy deploy` runs setup if needed and then starts Amy.
+
+`./scripts/amy run` is the foreground, interactive command loop. `./scripts/amy deploy` is the background launcher, and it will run setup first if needed before starting Amy as a background process.
 
 After setup, you can also use the installed console script inside the venv:
 
