@@ -1,6 +1,40 @@
-# Amy AI Voice Assistant
+# Description
 
-Local Python voice assistant that wakes on `amy`, transcribes speech locally, can pull in lightweight web search for current topics, sends text plus project context to OpenAI, and speaks responses back locally.
+Amy is an open-source AI assistant exploring how agents can learn, accumulate, and compose new capabilities over time.
+
+Rather than relying solely on predefined tools and workflows, Amy aims to capture successful outcomes and transform them into reusable capabilities that compound with experience.
+
+The current implementation focuses on a fast, local-first voice experience while laying the architectural foundation for adaptive, self-improving agents.
+
+---
+
+## Why Amy?
+
+After exploring countless AI agent frameworks, I noticed a common pattern: most agents are built around predefined tools and workflows. While these systems are powerful, expanding their capabilities often requires humans to continually add new integrations, prompts, or code.
+
+This creates a fundamental limitation. Agents can reason through novel problems, but very little of what they discover becomes structured knowledge that can be reused later. Every interaction starts from nearly the same place.
+
+Amy is built around a different idea.
+
+Instead of viewing an agent as a collection of predefined tools, Amy treats every successful outcome as an opportunity to build a reusable capability. The goal is to create agents that don't simply execute workflows—they continuously expand what they're capable of accomplishing.
+
+---
+
+## Vision
+
+The long-term vision for Amy is to build agents whose capabilities compound through experience.
+
+Today's frontier models can often solve problems they've never seen before through reasoning alone. However, those solutions are typically ephemeral. They solve a task, consume tokens, and move on. The reasoning that led to success rarely becomes structured knowledge that can be reused, composed, or improved over time.
+
+Amy explores the infrastructure required to change that.
+
+Rather than treating every request as a brand new reasoning problem, Amy aims to capture successful outcomes and evolve them into reusable capabilities. Those capabilities should be discoverable, composable, adaptable, and continuously refined as the agent gains more experience.
+
+A capability might begin as something simple—checking email for new sales leads—but the same principles should scale to discovering new business workflows, integrating with unfamiliar software, automating research, or composing multiple capabilities together to solve increasingly complex tasks.
+
+As the implementation evolves, the underlying execution may change. A capability might move from pure reasoning, to a reusable workflow, to a dedicated integration, or eventually to a fully autonomous system. What remains constant is the desired outcome—not the implementation itself.
+
+Amy exists to explore the infrastructure needed for agents that continuously learn from experience, accumulate reusable capabilities, and become more capable over time.
 
 ## Requirements
 - macOS
