@@ -2,27 +2,23 @@
 
 An open-source AI assistant exploring how agents can learn, accumulate, and compose new capabilities over time.
 
-Rather than relying solely on predefined tools and workflows, Amy explores how successful outcomes can be captured, organized, and transformed into reusable capabilities that compound with experience.
+Rather than relying solely on predefined tools and workflows, Amy explores how successful outcomes can be captured, organized, and transformed into reusable building blocks that grow in value with experience.
 
 The current implementation focuses on a fast, local-first voice experience while laying the architectural foundation for adaptive, self-improving agents.
 
-
 ## Vision
 
-Most AI agents today are built around predefined tools and workflows. While these systems are powerful, expanding their capabilities often requires humans to continually add new integrations, prompts, or code.
+Most AI agents today are built around predefined tools and workflows. While these systems are powerful, expanding what they can do often requires humans to continually add new integrations, prompts, or code.
 
 The long-term goal is to build agents that can:
 
-- **Learn** from successful outcomes rather than treating every interaction as disposable.
-- **Accumulate** reusable capabilities that grow over time.
-- **Compose** existing capabilities to solve increasingly complex problems.
-- **Adapt** as tools, APIs, and underlying implementations evolve.
-- **Share** capabilities across projects and domains instead of rebuilding the same workflows.
+- **Learn** from successful outcomes instead of treating every interaction as disposable.
+- **Accumulate** knowledge that becomes reusable over time.
+- **Compose** existing abilities into increasingly sophisticated solutions.
+- **Adapt** as tools, APIs, and implementations evolve.
+- **Transfer** what they've learned across projects and domains instead of repeatedly solving the same problems.
 
-Ultimately, Amy exists to explore a future where agents don't simply answer questions—they accumulate capabilities.
-
-
-
+Ultimately, Amy exists to explore a future where agents don't simply answer questions—they continuously grow more capable.
 
 ## Requirements
 
@@ -30,8 +26,6 @@ Ultimately, Amy exists to explore a future where agents don't simply answer ques
 - brew
 - Python 3.10 or newer
 - An OpenAI API key in `OPENAI_API_KEY`
-
-
 
 ## Quick Start
 
