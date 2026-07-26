@@ -34,6 +34,8 @@ class AssistantController:
     usage_logger: Callable[[int, float], None] | None = None
     acknowledgment_callback: Callable[[], None] | None = None
     acknowledgment_stop_callback: Callable[[], None] | None = None
+    # True when something upstream already spoke the wake greeting, so we skip ours.
+    wake_greeting_handled: Callable[[], bool] = field(default=lambda: False)
     speech_cooldown_seconds: float = 0.6
     _session: ConversationSession = field(init=False, repr=False)
     _interpreter: TranscriptInterpreter = field(init=False, repr=False)
@@ -92,6 +94,7 @@ class AssistantController:
         *,
         utterance_id: str | None = None,
         source_path: Path | None = None,
+        wake_confirmed: bool = False,
     ) -> str | None:
         process_started = time.perf_counter()
         normalized = self._interpreter.normalize_text(transcript)
@@ -114,7 +117,12 @@ class AssistantController:
         if handled:
             return control_reply
 
-        prompt = self._prepare_prompt(transcript, normalized, source_ref=source_ref)
+        prompt = self._prepare_prompt(
+            transcript,
+            normalized,
+            source_ref=source_ref,
+            wake_confirmed=wake_confirmed,
+        )
         if prompt is None:
             return None
 
@@ -170,11 +178,12 @@ class AssistantController:
         normalized: str,
         *,
         source_ref: str | Path | None = None,
+        wake_confirmed: bool = False,
     ) -> str | None:
         prompt = transcript.strip()
         prompt = self._interpreter.strip_acknowledgement_prefix(prompt)
         if not self.status.active_conversation:
-            if not self._interpreter.starts_with_wake_word(normalized):
+            if not wake_confirmed and not self._interpreter.starts_with_wake_word(normalized):
                 self._logger.debug("dropping transcript because wake word did not match: source=%s", source_ref)
                 return None
             prompt = self._interpreter.strip_wake_word(prompt)
@@ -183,7 +192,8 @@ class AssistantController:
                 self._logger.debug("wake word alone; acknowledging only: source=%s", source_ref)
                 self._session.acknowledge_wake_word()
                 self._effects.stop_acknowledgement_loop()
-                self.speaker.speak("Amy here")
+                if not self.wake_greeting_handled():
+                    self.speaker.speak("Amy here")
                 self._session.begin_post_speech(
                     expects_follow_up=True,
                     speech_cooldown_seconds=self.speech_cooldown_seconds,

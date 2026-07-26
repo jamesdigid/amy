@@ -44,10 +44,13 @@ bootstrap() {
   "$VENV_DIR/bin/python" -m pip install -e ".[audio,dev]"
   AMY_TRANSCRIPTION_MODEL="${AMY_TRANSCRIPTION_MODEL:-mlx-community/whisper-large-v3-turbo}" \
     "$VENV_DIR/bin/python" - <<'PY' || echo "amy: model prefetch skipped (will download on first run)"
-from agents.amy.modalities.audio import MlxWhisperTranscriber
+from agents.amy.modalities.audio import AudioConfig, MlxWhisperTranscriber, WhisperWakeDetector
 import os
 
-MlxWhisperTranscriber(model_repo=os.environ["AMY_TRANSCRIPTION_MODEL"]).warmup()
+transcription_model = os.environ["AMY_TRANSCRIPTION_MODEL"]
+wake_model = os.environ.get("AMY_WAKE_MODEL", "mlx-community/whisper-tiny")
+MlxWhisperTranscriber(model_repo=transcription_model).warmup()
+WhisperWakeDetector(AudioConfig(wake_model_repo=wake_model)).warmup()
 PY
 
   mkdir -p "$ROOT_DIR/.amy"

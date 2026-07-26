@@ -12,7 +12,7 @@ from .config import AppConfig, load_config
 from .controller import AssistantController
 from .context.prompts import PromptBuilder
 from .memory import MemoryStore, OpenAIMemoryClassifier
-from .modalities.audio import AudioConfig, LocalSpeaker, MlxWhisperTranscriber
+from .modalities.audio import AudioConfig, LocalSpeaker, MlxWhisperTranscriber, WhisperWakeDetector
 from .runtime.assistant import AssistantRuntime
 from .runtime.status import AmyStatusReporter
 from .skills.registry import AmySkillRegistry
@@ -61,6 +61,10 @@ class AmyAgent:
             if runtime is not None:
                 runtime.stop_acknowledgement_loop()
 
+        def runtime_speaks_wake_greeting() -> bool:
+            runtime = runtime_holder.get("runtime")
+            return runtime is not None and runtime.wake_cue_available()
+
         controller = AssistantController(
             prompt_builder=prompt_builder,
             responder=responder,
@@ -72,6 +76,7 @@ class AmyAgent:
             web_search=skill_registry.web_search,
             acknowledgment_callback=runtime_acknowledgement_start,
             acknowledgment_stop_callback=runtime_acknowledgement_stop,
+            wake_greeting_handled=runtime_speaks_wake_greeting,
             usage_logger=lambda tokens, cost: print(
                 f"[amy] estimated usage: {tokens} tokens (~${cost:.4f})"
             ),
@@ -82,7 +87,21 @@ class AmyAgent:
                 model_repo=config.transcription_model,
                 language=config.transcript_language,
             ),
-            audio_config=AudioConfig(input_device=config.audio_input_device),
+            audio_config=AudioConfig(
+                input_device=config.audio_input_device,
+                ring_buffer_ms=config.ring_buffer_ms,
+                wake_window_ms=config.wake_window_ms,
+                wake_min_window_ms=config.wake_min_window_ms,
+                wake_poll_ms=config.wake_poll_ms,
+                rms_threshold=config.rms_threshold,
+                wake_rms_threshold=config.wake_rms_threshold,
+                silence_ms=config.silence_ms,
+                wake_model_repo=config.wake_model,
+            ),
+            wake_detector_factory=lambda audio_config: WhisperWakeDetector(
+                audio_config,
+                wake_word=config.wake_word,
+            ),
             log_transcripts=config.log_transcripts,
             status_reporter=status_reporter,
             on_status=lambda message: print(f"[amy] {message}"),

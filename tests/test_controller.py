@@ -133,6 +133,7 @@ def build_controller(
     idle_timeout_seconds: float = 0.1,
     speech_cooldown_seconds: float = 0.05,
     follow_up_timeout_seconds: float = 0.1,
+    wake_word: str = "amy",
 ) -> tuple[AssistantController, FakeResponder, FakeSpeaker, FakeWebSearch | None]:
     responder = FakeResponder()
     speaker = FakeSpeaker()
@@ -140,11 +141,11 @@ def build_controller(
         prompt_builder=PromptBuilder(
                 assistant_name="Amy",
                 project_context="",
-                wake_word="amy",
+                wake_word=wake_word,
         ),
         responder=responder,
         speaker=speaker,
-        wake_word="amy",
+        wake_word=wake_word,
         status_reporter=status_reporter,
         memory_store=memory_store,
         memory_classifier=memory_classifier,
@@ -165,6 +166,24 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertEqual(responder.calls, [])
         self.assertEqual(speaker.spoken, [])
+
+    def test_accepts_custom_wake_word(self) -> None:
+        controller, responder, speaker, _ = build_controller(wake_word="jarvis")
+
+        result = controller.process_transcript("jarvis summarize this")
+
+        self.assertEqual(result, "reply")
+        self.assertEqual(responder.calls[0][-1].content, "summarize this")
+        self.assertEqual(speaker.spoken, ["reply"])
+
+    def test_preserves_non_latin_transcripts(self) -> None:
+        controller, responder, speaker, _ = build_controller()
+
+        result = controller.process_transcript("amy こんにちは")
+
+        self.assertEqual(result, "reply")
+        self.assertEqual(responder.calls[0][-1].content, "こんにちは")
+        self.assertEqual(speaker.spoken, ["reply"])
 
     def test_status_check_skips_responder_and_speaks_report(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -224,6 +243,19 @@ class AssistantControllerTests(unittest.TestCase):
         self.assertEqual(speaker.spoken, ["Sorry, I had trouble reaching the server."])
         self.assertIn("network down", controller.get_status().error_message)
         self.assertEqual(controller.get_status().phase.value, "cooldown")
+
+    def test_wake_word_alone_skips_speaking_when_greeting_already_handled(self) -> None:
+        """The runtime greets from the wake detector, over a second sooner than here."""
+        controller, responder, speaker, _ = build_controller()
+        controller.wake_greeting_handled = lambda: True
+
+        result = controller.process_transcript("amy")
+
+        self.assertIsNone(result)
+        self.assertEqual(responder.calls, [])
+        self.assertEqual(speaker.spoken, [])
+        # Session state still advances so follow-ups need no second wake word.
+        self.assertTrue(controller.get_status().active_conversation)
 
     def test_wake_word_alone_only_acknowledges(self) -> None:
         controller, responder, speaker, _ = build_controller()
