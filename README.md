@@ -105,6 +105,14 @@ Optional environment variables:
 - `AMY_WAKE_WORD`
 - `AMY_TRANSCRIPT_LANGUAGE`
 - `AMY_TRANSCRIPTION_MODEL`
+- `AMY_WAKE_MODEL`
+- `AMY_RING_BUFFER_MS`
+- `AMY_WAKE_WINDOW_MS`
+- `AMY_WAKE_MIN_WINDOW_MS`
+- `AMY_WAKE_POLL_MS`
+- `AMY_RMS_THRESHOLD`
+- `AMY_WAKE_RMS_THRESHOLD`
+- `AMY_SILENCE_MS`
 - `AMY_LOG_TRANSCRIPTS`
 - `AMY_AUDIO_INPUT_DEVICE`
 
@@ -113,7 +121,7 @@ You can also edit `config/project_context.md` to shape Amy's tone and behavior f
 ## What To Expect
 
 - Amy runs locally and uses terminal commands for lifecycle control.
-- Say `amy` to begin a voice interaction.
+- Say `amy` or `hey amy` to begin a voice interaction.
 - Say `amy status check` or `check your status` to ask Amy for her current runtime status, registered skills, a lightweight smoke test, and relevant skill notes.
 - After Amy responds, she stays in listening mode for about 10 seconds so you can follow up without repeating the wake word.
 - Voice has no control words. Use the terminal commands `pause`, `resume`, `status`, and `quit` while running in the foreground.

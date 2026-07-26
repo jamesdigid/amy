@@ -7,6 +7,9 @@ import re
 from ..models import Message
 
 
+DEFAULT_WAKE_WORD_ALIASES = ("amy", "ammy", "ami", "emmy", "aimee", "amie")
+
+
 def _normalize_signal(text: str) -> str:
     return re.sub(r"[^a-z0-9\s]", "", text.lower()).strip()
 
@@ -105,6 +108,7 @@ QUESTION_STARTERS = (
 @dataclass(frozen=True)
 class TranscriptInterpreter:
     wake_word: str
+    wake_word_aliases: tuple[str, ...] | None = None
     acknowledgement_echoes: frozenset[str] = field(
         default_factory=lambda: frozenset({"yes", "yeah", "yep", "no", "ok", "okay", "sure", "right"}),
         init=False,
@@ -112,21 +116,32 @@ class TranscriptInterpreter:
     )
 
     def normalize_text(self, text: str) -> str:
-        return re.sub(r"\s+", " ", text.strip().lower())
+        normalized = re.sub(r"[^\w\s]", "", text.lower(), flags=re.UNICODE)
+        return re.sub(r"\s+", " ", normalized).strip()
+
+    def _wake_aliases(self) -> tuple[str, ...]:
+        aliases = self.wake_word_aliases
+        if aliases is None:
+            aliases = DEFAULT_WAKE_WORD_ALIASES if self.wake_word.lower() == "amy" else (self.wake_word,)
+        normalized_aliases = tuple(dict.fromkeys(alias.lower().strip() for alias in aliases if alias.strip()))
+        return normalized_aliases or (self.wake_word.lower(),)
+
+    def _wake_word_pattern(self) -> re.Pattern[str]:
+        aliases = "|".join(re.escape(alias) for alias in self._wake_aliases())
+        return re.compile(rf"^\s*(?:(?:hey|hi)\s+)?(?:{aliases})\b[\s,.:;-]*", re.IGNORECASE)
 
     def strip_wake_word(self, text: str) -> str:
-        pattern = re.compile(rf"^\s*{re.escape(self.wake_word)}[\s,.:;-]*", re.IGNORECASE)
-        return pattern.sub("", text).strip()
+        return self._wake_word_pattern().sub("", text).strip()
 
     def starts_with_wake_word(self, text: str) -> bool:
-        return re.match(rf"^{re.escape(self.wake_word)}\b", text) is not None
+        return self._wake_word_pattern().match(text) is not None
 
     def strip_acknowledgement_prefix(self, text: str) -> str:
         pattern = re.compile(r"^\s*(?:amy\s+)?here[\s,.:;-]*", re.IGNORECASE)
         return pattern.sub("", text).strip()
 
     def normalize_echo_text(self, text: str) -> str:
-        return re.sub(r"[^a-z0-9\s]", "", text.lower()).strip()
+        return re.sub(r"[^\w\s]", "", text.lower(), flags=re.UNICODE).strip()
 
     def is_status_command(self, text: str) -> bool:
         normalized = self.normalize_text(text)

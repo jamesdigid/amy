@@ -16,6 +16,14 @@ class AppConfig:
     wake_word: str
     transcript_language: str | None = None
     transcription_model: str = "mlx-community/whisper-large-v3-turbo"
+    wake_model: str = "mlx-community/whisper-tiny"
+    ring_buffer_ms: int = 2000
+    wake_window_ms: int = 1200
+    wake_min_window_ms: int = 500
+    wake_poll_ms: int = 300
+    rms_threshold: int = 500
+    wake_rms_threshold: int = 650
+    silence_ms: int = 700
     log_transcripts: bool = False
     audio_input_device: str | int | None = None
 
@@ -60,6 +68,18 @@ def load_config(base_dir: Path | None = None) -> AppConfig:
         "AIMEE_TRANSCRIPTION_MODEL",
         "mlx-community/whisper-large-v3-turbo",
     )
+    wake_model = _get_env_with_fallback("AMY_WAKE_MODEL", "AIMEE_WAKE_MODEL", "mlx-community/whisper-tiny")
+    ring_buffer_ms = int(_get_env_with_fallback("AMY_RING_BUFFER_MS", "AIMEE_RING_BUFFER_MS", "2000"))
+    wake_window_ms = int(_get_env_with_fallback("AMY_WAKE_WINDOW_MS", "AIMEE_WAKE_WINDOW_MS", "1200"))
+    wake_min_window_ms = int(
+        _get_env_with_fallback("AMY_WAKE_MIN_WINDOW_MS", "AIMEE_WAKE_MIN_WINDOW_MS", "500")
+    )
+    wake_poll_ms = int(_get_env_with_fallback("AMY_WAKE_POLL_MS", "AIMEE_WAKE_POLL_MS", "300"))
+    rms_threshold = int(_get_env_with_fallback("AMY_RMS_THRESHOLD", "AIMEE_RMS_THRESHOLD", "500"))
+    wake_rms_threshold = int(
+        _get_env_with_fallback("AMY_WAKE_RMS_THRESHOLD", "AIMEE_WAKE_RMS_THRESHOLD", "650")
+    )
+    silence_ms = int(_get_env_with_fallback("AMY_SILENCE_MS", "AIMEE_SILENCE_MS", "700"))
     log_transcripts_raw = _get_env_with_fallback(
         "AMY_LOG_TRANSCRIPTS", "AIMEE_LOG_TRANSCRIPTS", "false"
     )
@@ -81,6 +101,14 @@ def load_config(base_dir: Path | None = None) -> AppConfig:
         wake_word=wake_word,
         transcript_language=transcript_language,
         transcription_model=transcription_model,
+        wake_model=wake_model,
+        ring_buffer_ms=ring_buffer_ms,
+        wake_window_ms=wake_window_ms,
+        wake_min_window_ms=wake_min_window_ms,
+        wake_poll_ms=wake_poll_ms,
+        rms_threshold=rms_threshold,
+        wake_rms_threshold=wake_rms_threshold,
+        silence_ms=silence_ms,
         log_transcripts=log_transcripts,
         audio_input_device=audio_input_device,
     )

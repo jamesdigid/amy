@@ -24,6 +24,12 @@ class ConfigTests(unittest.TestCase):
                     "AIMEE_MODEL": "gpt-test",
                     "AMY_ASSISTANT_NAME": "Amy",
                     "AMY_TRANSCRIPTION_MODEL": "mlx-community/whisper-small",
+                    "AMY_WAKE_MODEL": "mlx-community/whisper-tiny",
+                    "AMY_RING_BUFFER_MS": "2400",
+                    "AMY_WAKE_WINDOW_MS": "900",
+                    "AMY_WAKE_MIN_WINDOW_MS": "450",
+                    "AMY_WAKE_POLL_MS": "150",
+                    "AMY_WAKE_RMS_THRESHOLD": "1200",
                     "AMY_LOG_TRANSCRIPTS": "1",
                     "AMY_AUDIO_INPUT_DEVICE": "Audient iD24",
                 },
@@ -36,6 +42,12 @@ class ConfigTests(unittest.TestCase):
                 self.assertEqual(config.project_context, "Use short answers.")
                 self.assertEqual(config.memory_dir, base_path / "src" / "agents" / "amy" / "memory")
                 self.assertTrue(config.log_transcripts)
+                self.assertEqual(config.wake_model, "mlx-community/whisper-tiny")
+                self.assertEqual(config.ring_buffer_ms, 2400)
+                self.assertEqual(config.wake_window_ms, 900)
+                self.assertEqual(config.wake_min_window_ms, 450)
+                self.assertEqual(config.wake_poll_ms, 150)
+                self.assertEqual(config.wake_rms_threshold, 1200)
                 self.assertEqual(config.audio_input_device, "Audient iD24")
 
     def test_load_config_reads_memory_dir_override(self) -> None:
